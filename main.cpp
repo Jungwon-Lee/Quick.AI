@@ -41,6 +41,7 @@
 #include "qwen3_embedding.h"
 #include "qwen3_moe_causallm.h"
 #include "qwen3_slim_moe_causallm.h"
+#include "smallthinker_causallm.h"
 #include <models/gemma3/function.h>
 #include <sys/resource.h>
 
@@ -191,6 +192,12 @@ int main(int argc, char *argv[]) {
     "Gemma3ForCausalLM", [](json cfg, json generation_cfg, json nntr_cfg) {
       return std::make_unique<quick_dot_ai::Gemma3CausalLM>(cfg, generation_cfg,
                                                         nntr_cfg);
+    });
+  quick_dot_ai::Factory::Instance().registerModel(
+    "SmallThinkerForCausalLM",
+    [](json cfg, json generation_cfg, json nntr_cfg) {
+      return std::make_unique<quick_dot_ai::SmallThinkerCausalLM>(
+        cfg, generation_cfg, nntr_cfg);
     });
   quick_dot_ai::Factory::Instance().registerModel(
     "EmbeddingGemma", [](json cfg, json generation_cfg, json nntr_cfg) {

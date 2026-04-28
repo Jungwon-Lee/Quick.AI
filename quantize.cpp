@@ -78,6 +78,7 @@
 #include "qwen3_embedding.h"
 #include "qwen3_moe_causallm.h"
 #include "qwen3_slim_moe_causallm.h"
+#include "smallthinker_causallm.h"
 
 using json = nlohmann::json;
 using DataType = ml::train::TensorDim::DataType;
@@ -260,6 +261,12 @@ void registerAllModels() {
                           return std::make_unique<quick_dot_ai::Gemma3CausalLM>(
                             cfg, generation_cfg, nntr_cfg);
                         });
+  factory.registerModel(
+    "SmallThinkerForCausalLM",
+    [](json cfg, json generation_cfg, json nntr_cfg) {
+      return std::make_unique<quick_dot_ai::SmallThinkerCausalLM>(
+        cfg, generation_cfg, nntr_cfg);
+    });
   factory.registerModel("EmbeddingGemma",
                         [](json cfg, json generation_cfg, json nntr_cfg) {
                           return std::make_unique<quick_dot_ai::EmbeddingGemma>(
@@ -477,7 +484,11 @@ int main(int argc, char *argv[]) {
     std::string dst_weight_path = output_dir + "/" + output_bin_name;
 
     int num_layers = cfg["num_hidden_layers"].get<int>();
-    bool tie_word_embeddings = cfg["tie_word_embeddings"].get<bool>();
+    bool tie_word_embeddings =
+      cfg.contains("tie_word_embeddings") &&
+          cfg["tie_word_embeddings"].is_boolean()
+        ? cfg["tie_word_embeddings"].get<bool>()
+        : true;
 
     std::cout << "  Architecture: "
               << cfg["architectures"].get<std::vector<std::string>>()[0]

@@ -31,6 +31,7 @@
 #include "qwen3_causallm.h"
 #include "qwen3_moe_causallm.h"
 #include "qwen3_slim_moe_causallm.h"
+#include "smallthinker_causallm.h"
 #include <factory.h>
 #include <fstream>
 #include <sys/stat.h>
@@ -117,6 +118,12 @@ static void register_models() {
         return std::make_unique<quick_dot_ai::Gemma3CausalLM>(cfg, generation_cfg,
                                                           nntr_cfg);
       });
+    quick_dot_ai::Factory::Instance().registerModel(
+      "SmallThinkerForCausalLM",
+      [](json cfg, json generation_cfg, json nntr_cfg) {
+        return std::make_unique<quick_dot_ai::SmallThinkerCausalLM>(
+          cfg, generation_cfg, nntr_cfg);
+      });
 
     // Register built-in configurations
     register_builtin_model_configs();
@@ -141,7 +148,8 @@ static std::string apply_chat_template(const std::string &architecture,
              architecture == "Qwen3ForCausalLM" ||
              architecture == "Qwen3MoeForCausalLM" ||
              architecture == "Qwen3SlimMoeForCausalLM" ||
-             architecture == "Qwen3CachedSlimMoeForCausalLM") {
+             architecture == "Qwen3CachedSlimMoeForCausalLM" ||
+             architecture == "SmallThinkerForCausalLM") {
     // Qwen chat format
     // <|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n
     // Note: assuming model handles tokenizer specific special tokens or we

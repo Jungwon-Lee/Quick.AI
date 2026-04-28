@@ -25,6 +25,7 @@ CAUSALLM_COMMON_INCLUDES := \
     $(LOCAL_PATH)/../models/qwen3_moe \
     $(LOCAL_PATH)/../models/qwen3_slim_moe \
     $(LOCAL_PATH)/../models/qwen3_cached_slim_moe \
+    $(LOCAL_PATH)/../models/smallthinker \
     $(LOCAL_PATH)/../models/gemma3 
 
 # Prebuilt nntrainer libraries
@@ -68,6 +69,8 @@ LOCAL_SRC_FILES := \
     ../models/qwen3_moe/qwen3_moe_causallm.cpp \
     ../models/qwen3_slim_moe/qwen3_slim_moe_causallm.cpp \
     ../models/qwen3_cached_slim_moe/qwen3_cached_slim_moe_causallm.cpp \
+    ../models/smallthinker/smallthinker_causallm.cpp \
+    ../models/smallthinker/smallthinker_moe_layer.cpp \
     ../models/gpt_oss/gptoss_causallm.cpp \
     ../models/gpt_oss_cached_slim/gptoss_cached_slim_causallm.cpp \
     ../huggingface_tokenizer.cpp \
@@ -194,6 +197,8 @@ LOCAL_SRC_FILES := ../quantize.cpp \
     ../models/qwen3_moe/qwen3_moe_causallm.cpp \
     ../models/qwen3_slim_moe/qwen3_slim_moe_causallm.cpp \
     ../models/qwen3_cached_slim_moe/qwen3_cached_slim_moe_causallm.cpp \
+    ../models/smallthinker/smallthinker_causallm.cpp \
+    ../models/smallthinker/smallthinker_moe_layer.cpp \
     ../models/gpt_oss/gptoss_causallm.cpp \
     ../models/gpt_oss_cached_slim/gptoss_cached_slim_causallm.cpp \
     ../llm_util.cpp \
@@ -229,6 +234,7 @@ LOCAL_C_INCLUDES += $(NNTRAINER_INCLUDES) \
     $(LOCAL_PATH)/../models/qwen3_moe \
     $(LOCAL_PATH)/../models/qwen3_slim_moe \
     $(LOCAL_PATH)/../models/qwen3_cached_slim_moe \
+    $(LOCAL_PATH)/../models/smallthinker \
     $(LOCAL_PATH)/../models/gemma3 \
 
 include $(BUILD_EXECUTABLE)
