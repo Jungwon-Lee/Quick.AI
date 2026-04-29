@@ -39,14 +39,14 @@ This is the single required workflow for the Agent (not optional/recommended):
 
 ```mermaid
 flowchart TD
-    A[1. Initialize workspace] --> B[2. Download model from HF]
-    B --> C[3. Implement model code]
-    C --> D[4. Implement weight_converter.py]
-    D --> E[5. Validate FP32 .bin]
-    E --> F[6. Quantize FP32 to Q4_0]
-    F --> G[7. Validate Q4_0]
+    A["1) Initialize workspace"] --> B["2) Download model from HF"]
+    B --> C["3) Implement model code"]
+    C --> D["4) Implement weight_converter.py"]
+    D --> E["5) Validate FP32 bin"]
+    E --> F["6) Quantize FP32 to Q4_0"]
+    F --> G["7) Validate Q4_0"]
 
-    G --> H[8. Run baseline benchmark]
+    G --> H["8) Run baseline benchmark"]
     H --> I[Analyze bottleneck evidence]
     I --> J{Optimization candidate exists?}
 
@@ -65,7 +65,7 @@ flowchart TD
     R -->|Yes| T[10. Update summary/report]
 
     J -->|No| T
-    T --> U{11. Merge Gate passed?}
+    T --> U{"11) Merge Gate passed?"}
     U -->|Yes| V[Update Quick.AI/models/*.py]
     U -->|No| W[Record failure/repro/next action]
 ```
