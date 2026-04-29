@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,34 @@ def parse_args() -> argparse.Namespace:
 
 def run(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True)
+
+
+def update_summary(report_dir: Path, benchmark_path: Path) -> None:
+    summary_path = report_dir / "onboarding_summary.md"
+    if not summary_path.exists():
+        return
+
+    payload = json.loads(benchmark_path.read_text(encoding="utf-8"))
+    e2e_rows = payload.get("results", [])
+    unit = payload.get("runtime", {}).get("runner_output_unit", "tps")
+    first_row = e2e_rows[0] if e2e_rows else {}
+    prompt = first_row.get("prompt_length", "-")
+    metric = first_row.get("e2e", {}).get(unit, {})
+    p50 = metric.get("p50", "-")
+    p90 = metric.get("p90", "-")
+
+    summary = summary_path.read_text(encoding="utf-8")
+    summary = summary.replace("- [ ] Benchmark", "- [x] Benchmark")
+    marker = "## Notes\n"
+    note = (
+        f"- Auto benchmark complete: unit={unit}, first_prompt_length={prompt}, "
+        f"p50={p50}, p90={p90}, file={benchmark_path.name}\n"
+    )
+    if marker in summary:
+        summary = summary.replace(marker, marker + note, 1)
+    else:
+        summary += "\n## Notes\n" + note
+    summary_path.write_text(summary, encoding="utf-8")
 
 
 def main() -> None:
@@ -80,6 +109,7 @@ def main() -> None:
         raise SystemExit("Either --mock or --runner-cmd must be provided")
 
     run(bench_cmd)
+    update_summary(report_dir, report_dir / "benchmark_results.json")
     print(f"Onboarding pipeline completed for {args.model_id}: {report_dir}")
 
 
