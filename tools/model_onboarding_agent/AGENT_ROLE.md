@@ -32,27 +32,66 @@ The purpose of this Agent is to implement newly requested Hugging Face model arc
 
 ---
 
-## 4) Mandatory Workflow (Order Must Be Preserved)
+## 4) Mandatory Agent Workflow (Single Source of Truth)
 
-1. Analyze the model
-   - inspect HF config/modeling/weights
-   - detect unsupported Quick.AI layers/ops
-2. Design and write tests (before implementation)
-   - FP32 correctness tests
-   - include layer-wise tests for large models
-   - Q4_0 functional tests
-3. Implement model
-   - implement required new layers/ops
-4. Validate correctness
-   - compare Quick.AI FP32 outputs against HF/PyTorch reference
-   - verify Q4_0 functional stability
-5. Benchmark and optimize
-   - measure prefill / decode / prefill&decode
-   - apply improvements when effective
-6. Record results
-   - write validation/optimization/benchmark details into report files
-7. Decide merge/update
-   - update `Quick.AI/models` only when all required gates pass
+This is the **only** authoritative workflow for the Agent.
+`Agent-First` means this exact mandatory order.
+
+1. Initialize onboarding workspace and report artifacts
+   - meaning: create a model-specific working folder under `tools/model_onboarding_agent/reports/<model_id>/`
+   - run `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)`
+   - writes initial metadata (HF URL/revision/model_id) and TODO placeholders so later steps append evidence instead of creating ad-hoc files
+   - required artifacts:
+     - `reports/<model_id>/onboarding_summary.md`
+     - `reports/<model_id>/benchmark_results.json`
+     - `reports/<model_id>/optimization_log.md`
+     - `reports/<model_id>/todo_smoke_test.md`
+
+2. Download model from Hugging Face
+   - fetch config/tokenizer/weights from `hf_url` (+ revision/hash)
+   - if revision/hash is omitted, use `main` and record reproducibility warning
+
+3. Implement model code while downloading
+   - reference `transformers` or `modeling_<model_name>.py`
+   - detect unsupported Quick.AI layers/ops and implement required new layers/ops
+
+4. Implement `weight_converter.py`
+   - convert downloaded weights into a Quick.AI-loadable FP32 `.bin`
+
+5. Validate FP32 `.bin` model
+   - verify Quick.AI can load and run FP32 model
+   - compare outputs with HF/PyTorch reference (and layer-wise checks for large models)
+
+6. Quantize FP32 to Q4_0
+   - run `nntrainer_quantize` to generate Q4_0 artifact
+
+7. Validate Q4_0 model
+   - verify inference stability (no crash, no NaN/Inf, sane output shape/length)
+
+8. Run baseline benchmark (fixed policy)
+   - `bench_tool.run_benchmark(RunConfig(...))`
+   - threads=4, batch=1, warmup=3, repeat=10, prompt_lengths={128,256,512,1024}
+
+9. Execute performance optimization loop (mandatory)
+   - analyze bottlenecks from benchmark + profiler evidence (prefill/decode split, hot operators, memory movement)
+   - prioritize high-impact candidates, for example:
+     - KV-cache read/write pattern and allocation reuse
+     - redundant tensor copies / dtype casts / layout transforms
+     - operator fusion opportunities and unnecessary graph breaks
+     - thread affinity / parallel granularity on CPU
+   - apply one optimization at a time, then re-run FP32/Q4_0 validation + benchmark
+   - keep changes only when both conditions are met:
+     1) correctness gates still pass, and
+     2) target metric improves vs previous best under identical benchmark settings
+   - repeat until no meaningful gain remains or risk/cost becomes too high
+
+10. Update summary/report status
+   - `run_onboarding_pipeline.update_summary(report_dir, benchmark_path)`
+   - record each optimization iteration: hypothesis, change, metrics(before/after), decision(keep/revert)
+
+11. Decide Merge Gate
+   - update `Quick.AI/models/*.py` only when section 9 gate is fully satisfied
+   - on failure, stop and record cause/repro/next action
 
 ---
 
@@ -91,6 +130,13 @@ The purpose of this Agent is to implement newly requested Hugging Face model arc
   3) end-to-end prefill&decode TPS/latency
 
 Always compare optimization before/after under identical conditions and record results in a tabular format.
+
+### Optimization Loop Exit Criteria (Mandatory)
+- Stop when one of the following is true:
+  1) last 2 consecutive iterations improve < 3% on both prefill/decode TPS
+  2) optimization introduces instability/correctness regression
+  3) complexity cost is high relative to observed gain
+- Final report must include: best iteration id, kept optimizations, reverted optimizations, and rationale.
 
 ---
 
@@ -139,6 +185,12 @@ If any gate fails:
 - smoke-test automation tool implementation is out of current scope (To Do)
 
 ## 11) Appendix
+
+## 11.1) Term Clarification
+
+- **Initialize onboarding workspace and report artifacts**:
+  bootstrap the per-model report directory and four required files before any model implementation/validation begins.
+
 - Smoke test checklist: `SMOKE_TEST_CHECKLIST_TEMPLATE.md`
 - Benchmark tool spec: `BENCHMARK_TOOL_SPEC.md`
 - Onboarding report initialization CLI: `onboarding_cli.py`
@@ -146,29 +198,53 @@ If any gate fails:
 
 ---
 
-## 12) Agent-First Execution Order (Recommended Fixed Order)
+## 12) Agent Tooling Map (Supports Section 4 Mandatory Workflow)
 
-When a user requests a new model onboarding, the Agent should follow this order consistently.
-Prefer Python API calls over manual CLI execution.
+To avoid confusion: this section does **not** define a separate workflow.
+It only maps helper tools to the mandatory steps in section 4.
 
-1. Initialize workspace  
-   - function: `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)`  
-   - artifacts: `onboarding_summary.md`, `benchmark_results.json`, `optimization_log.md`, `todo_smoke_test.md`
+- Step 1: `onboarding_cli.initialize_workspace(...)`
+- Step 8: `bench_tool.run_benchmark(RunConfig(...))`
+- Step 9: iterative loop with repeated validation + benchmark runs
+- Step 10: `run_onboarding_pipeline.update_summary(...)`
+- Optional convenience wrapper: `run_onboarding_pipeline.main()`
+  - executes selected helper steps in one call
+  - must still follow section 4 order and gates
 
-2. Run benchmark  
-   - function: `bench_tool.run_benchmark(RunConfig(...))`  
-   - fixed policy: threads=4, batch=1, warmup=3, repeat=10, prompt_lengths={128,256,512,1024}
+### Workflow Visualization
 
-3. Update summary report automatically  
-   - function: `run_onboarding_pipeline.update_summary(report_dir, benchmark_path)`  
-   - behavior: mark Benchmark as complete in `onboarding_summary.md` + append auto note
+```mermaid
+flowchart TD
+    A[1. Initialize workspace] --> B[2. Download model from HF]
+    B --> C[3. Implement model code]
+    C --> D[4. Implement weight_converter.py]
+    D --> E[5. Validate FP32 .bin]
+    E --> F[6. Quantize FP32 to Q4_0]
+    F --> G[7. Validate Q4_0]
 
-4. (Optional) use one-shot entrypoint  
-   - function/CLI: `run_onboarding_pipeline.main()` or `python tools/model_onboarding_agent/run_onboarding_pipeline.py ...`  
-   - purpose: run steps 1~3 in one call and print JSON manifest
+    G --> H[8. Run baseline benchmark]
+    H --> I[Analyze bottleneck evidence]
+    I --> J{Optimization candidate exists?}
 
-5. Decide Merge Gate  
-   - update `Quick.AI/models/*.py` only when section 9 gate is satisfied based on reports/logs
+    J -->|Yes| K[Apply exactly one optimization]
+    K --> L[Re-validate FP32/Q4_0]
+    L --> M{Validation pass?}
+    M -->|No| N[Revert change + log reason]
+    N --> I
+    M -->|Yes| O[Re-benchmark under identical settings]
+    O --> P{Metric improved vs best?}
+    P -->|No| Q[Revert change + log result]
+    Q --> R{Exit criteria met?}
+    P -->|Yes| S[Keep change + update best metrics]
+    S --> R
+    R -->|No| I
+    R -->|Yes| T[10. Update summary/report]
+
+    J -->|No| T
+    T --> U{11. Merge Gate passed?}
+    U -->|Yes| V[Update Quick.AI/models/*.py]
+    U -->|No| W[Record failure/repro/next action]
+```
 
 ### Execution Principles
 - Minimize human intervention; do not require user confirmations between steps (except missing required inputs).
