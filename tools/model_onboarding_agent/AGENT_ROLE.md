@@ -188,6 +188,24 @@ Prefer Python API calls over manual CLI execution.
 11. Decide Merge Gate  
    - update `Quick.AI/models/*.py` only when section 9 gate is satisfied based on reports/logs
 
+
+### Workflow Visualization
+
+```mermaid
+flowchart TD
+    A[Initialize workspace] --> B[Run benchmark]
+    B --> C[Update summary report]
+    C --> D[Download model from HF]
+    D --> E[Implement model code]
+    E --> F[Implement weight_converter.py]
+    F --> G[Validate FP32 .bin]
+    G --> H[Quantize to Q4_0]
+    H --> I[Validate Q4_0]
+    I --> J{Merge Gate}
+    J -->|Pass| K[Update Quick.AI/models/*.py]
+    J -->|Fail| L[Record cause/repro/next action]
+```
+
 ### Execution Principles
 - Minimize human intervention; do not require user confirmations between steps (except missing required inputs).
 - Always record/output artifact paths in machine-readable format (JSON or explicit file paths).

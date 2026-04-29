@@ -39,6 +39,30 @@ Requirements:
 8. After FP32 validation, quantize FP32 to Q4_0 using `nntrainer_quantize`.
 9. Validate the quantized Q4_0 model.
 
+## Agent Workflow Visualization
+
+```mermaid
+flowchart TD
+    A[1. Initialize workspace] --> B[2. Run benchmark]
+    B --> C[3. Update summary report]
+    C --> D{4. One-shot entrypoint?}
+    D -->|Yes| E[Continue with generated artifacts]
+    D -->|No| E
+    E --> F[5. Download model from Hugging Face]
+    F --> G[6. Implement model code
+(transformers / modeling_<model_name>.py)]
+    G --> H[7. Implement weight_converter.py
+(.bin conversion)]
+    H --> I[8. Validate FP32 .bin model]
+    I --> J[9. Quantize FP32 to Q4_0
+(nntrainer_quantize)]
+    J --> K[10. Validate Q4_0 model]
+    K --> L{11. Merge Gate passed?}
+    L -->|Yes| M[Update Quick.AI/models/*.py]
+    L -->|No| N[Record failure/repro/next action
+in onboarding_summary.md or optimization_log.md]
+```
+
 ## Required Inputs
 
 - Hugging Face URL
