@@ -144,3 +144,34 @@
 - 벤치마크 Tool 요구사항: `BENCHMARK_TOOL_SPEC.md`
 - 온보딩 리포트 초기화 CLI: `onboarding_cli.py`
 - 온보딩 파이프라인 실행 CLI: `run_onboarding_pipeline.py`
+
+---
+
+## 12) Codex-First Execution Order (고정 권장 순서)
+
+사용자가 신규 모델 추가를 요청하면, Codex는 아래 순서를 **우선적으로 동일하게** 따른다.
+CLI 직접 실행보다 Python API 호출을 우선한다.
+
+1. 워크스페이스 초기화  
+   - 함수: `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)`  
+   - 산출물: `onboarding_summary.md`, `benchmark_results.json`, `optimization_log.md`, `todo_smoke_test.md`
+
+2. 벤치마크 실행  
+   - 함수: `bench_tool.run_benchmark(RunConfig(...))`  
+   - 고정 정책: threads=4, batch=1, warmup=3, repeat=10, prompt_lengths={128,256,512,1024}
+
+3. 요약 리포트 자동 갱신  
+   - 함수: `run_onboarding_pipeline.update_summary(report_dir, benchmark_path)`  
+   - 동작: `onboarding_summary.md`의 Benchmark 상태 체크 + 자동 메모 추가
+
+4. (선택) 단일 엔트리 포인트 사용  
+   - 함수/CLI: `run_onboarding_pipeline.main()` 또는 `python tools/model_onboarding_agent/run_onboarding_pipeline.py ...`  
+   - 목적: 위 1~3 단계를 원샷으로 수행하고 JSON manifest를 출력
+
+5. Merge Gate 판단  
+   - `onboarding_summary.md`, `benchmark_results.json`, 검증 로그를 기반으로 9) Merge / Update Gate를 통과한 경우에만 `Quick.AI/models/*.py` 반영
+
+### 실행 원칙
+- 사람 입력을 최소화하기 위해, Codex는 중간 단계마다 사용자 확인을 요구하지 않는다(필수 입력 누락 시에만 질문).
+- 결과물 경로는 항상 machine-readable 하게 기록/출력한다(JSON 또는 명시적 파일 경로).
+- 실패 시에는 즉시 중단하고 원인/재현 커맨드/다음 액션을 `onboarding_summary.md` 또는 `optimization_log.md`에 남긴다.
