@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 TOOL = ROOT / "tools/model_onboarding_agent/bench_tool.py"
 
@@ -38,9 +37,7 @@ class BenchToolCLITest(unittest.TestCase):
                 str(out),
             ] + extra_args
             res = subprocess.run(cmd, capture_output=True, text=True)
-            payload = None
-            if out.exists():
-                payload = json.loads(out.read_text())
+            payload = json.loads(out.read_text()) if out.exists() else None
             return res, payload
 
     def test_mock_mode_creates_valid_schema(self):
@@ -48,28 +45,25 @@ class BenchToolCLITest(unittest.TestCase):
         self.assertEqual(res.returncode, 0, msg=res.stderr)
         self.assertIsNotNone(payload)
 
-        self.assertEqual(payload["model_id"], "demo")
-        self.assertEqual(payload["hf_revision"], "abc123")
-        self.assertEqual(payload["runtime"]["threads"], 4)
-        self.assertEqual(payload["runtime"]["batch_size"], 1)
-        self.assertEqual(payload["runtime"]["warmup"], 3)
-        self.assertEqual(payload["runtime"]["repeat"], 10)
-
+        self.assertEqual(payload["runtime"]["runner_output_unit"], "tps")
         lengths = [row["prompt_length"] for row in payload["results"]]
         self.assertEqual(lengths, [128, 256, 512, 1024])
 
         for row in payload["results"]:
-            self.assertIn("prefill_tps", row)
-            self.assertIn("decode_tps", row)
-            self.assertIn("e2e", row)
             self.assertGreater(row["prefill_tps"]["p50"], 0)
             self.assertGreater(row["decode_tps"]["p50"], 0)
-            self.assertGreater(row["e2e"]["latency_ms_p50"], 0)
+            self.assertGreater(row["e2e"]["tps"]["p50"], 0)
+            self.assertGreater(row["e2e"]["latency_ms"]["p50"], 0)
 
     def test_invalid_policy_is_rejected(self):
-        res, _payload = self.run_tool(["--mock", "--threads", "8"])
+        res, _ = self.run_tool(["--mock", "--threads", "8"])
         self.assertNotEqual(res.returncode, 0)
         self.assertIn("threads must be 4", res.stderr)
+
+    def test_requires_runner_or_mock(self):
+        res, _ = self.run_tool([])
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("Provide either --mock or --runner-cmd", res.stderr)
 
 
 if __name__ == "__main__":

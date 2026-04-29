@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
-"""CPU-first benchmark runner for Quick.AI model onboarding.
-
-This tool standardizes benchmark execution metadata and output schema.
-Actual model inference hooks can be wired through `--runner-cmd`.
-"""
+"""CPU-first benchmark runner for Quick.AI model onboarding."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import statistics
 import subprocess
-import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
@@ -29,6 +23,7 @@ class RunConfig:
     output: Path
     runner_cmd: str | None
     mock: bool
+    runner_output_unit: str
 
 
 def parse_args() -> RunConfig:
@@ -49,23 +44,29 @@ def parse_args() -> RunConfig:
         ),
     )
     parser.add_argument(
-        "--mock",
-        action="store_true",
-        help="Generate deterministic synthetic results (for CI/spec verification).",
+        "--runner-output-unit",
+        choices=["tps", "latency_ms"],
+        default="tps",
+        help="Unit emitted by --runner-cmd stdout's last line. Mock mode ignores this.",
     )
+    parser.add_argument("--mock", action="store_true", help="Generate deterministic synthetic results.")
     args = parser.parse_args()
 
     if args.threads != 4:
-        raise ValueError("threads must be 4 (fixed policy)")
+        parser.error("threads must be 4 (fixed policy)")
     if args.batch_size != 1:
-        raise ValueError("batch-size must be 1 (fixed policy)")
+        parser.error("batch-size must be 1 (fixed policy)")
     if args.warmup != 3:
-        raise ValueError("warmup must be 3 (fixed policy)")
+        parser.error("warmup must be 3 (fixed policy)")
     if args.repeat != 10:
-        raise ValueError("repeat must be 10 (fixed policy)")
+        parser.error("repeat must be 10 (fixed policy)")
+
     allowed = {128, 256, 512, 1024}
     if set(args.prompt_lengths) != allowed:
-        raise ValueError("prompt-lengths must include exactly: 128 256 512 1024")
+        parser.error("prompt-lengths must include exactly: 128 256 512 1024")
+
+    if not args.mock and not args.runner_cmd:
+        parser.error("Provide either --mock or --runner-cmd")
 
     return RunConfig(
         model_id=args.model_id,
@@ -78,12 +79,11 @@ def parse_args() -> RunConfig:
         output=args.output,
         runner_cmd=args.runner_cmd,
         mock=args.mock,
+        runner_output_unit=args.runner_output_unit,
     )
 
 
 def percentile(values: List[float], p: float) -> float:
-    if not values:
-        return 0.0
     s = sorted(values)
     idx = (len(s) - 1) * p
     lo = int(idx)
@@ -94,16 +94,14 @@ def percentile(values: List[float], p: float) -> float:
 
 def run_external(cmd_template: str, phase: str, prompt_length: int) -> float:
     cmd = cmd_template.format(phase=phase, prompt_length=prompt_length)
-    started = time.perf_counter()
     proc = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
-    elapsed = time.perf_counter() - started
     stdout = proc.stdout.strip()
-    if stdout:
-        try:
-            return float(stdout.splitlines()[-1])
-        except ValueError:
-            pass
-    return elapsed
+    if not stdout:
+        raise ValueError("runner command must print numeric value on stdout")
+    try:
+        return float(stdout.splitlines()[-1])
+    except ValueError as e:
+        raise ValueError(f"unable to parse numeric value from runner output: {stdout!r}") from e
 
 
 def run_mock(phase: str, prompt_length: int, i: int) -> float:
@@ -115,24 +113,19 @@ def run_mock(phase: str, prompt_length: int, i: int) -> float:
 def measure_phase(cfg: RunConfig, phase: str, prompt_length: int) -> List[float]:
     for _ in range(cfg.warmup):
         if cfg.mock:
-            _ = run_mock(phase, prompt_length, 0)
-        elif cfg.runner_cmd:
-            _ = run_external(cfg.runner_cmd, phase, prompt_length)
+            run_mock(phase, prompt_length, 0)
         else:
-            raise ValueError("Provide --runner-cmd or --mock")
+            run_external(cfg.runner_cmd or "", phase, prompt_length)
 
     samples: List[float] = []
     for i in range(cfg.repeat):
-        if cfg.mock:
-            value = run_mock(phase, prompt_length, i)
-        else:
-            value = run_external(cfg.runner_cmd or "", phase, prompt_length)
+        value = run_mock(phase, prompt_length, i) if cfg.mock else run_external(cfg.runner_cmd or "", phase, prompt_length)
         samples.append(value)
     return samples
 
 
-def summarize_tps(samples: List[float]) -> Dict[str, float]:
-    return {"p50": round(percentile(samples, 0.5), 4), "p90": round(percentile(samples, 0.9), 4)}
+def summarize(values: List[float]) -> Dict[str, float]:
+    return {"p50": round(percentile(values, 0.5), 4), "p90": round(percentile(values, 0.9), 4)}
 
 
 def build_result(cfg: RunConfig) -> Dict[str, Any]:
@@ -141,15 +134,30 @@ def build_result(cfg: RunConfig) -> Dict[str, Any]:
         prefill = measure_phase(cfg, "prefill", prompt_length)
         decode = measure_phase(cfg, "decode", prompt_length)
         e2e = measure_phase(cfg, "e2e", prompt_length)
+
+        if cfg.mock or cfg.runner_output_unit == "tps":
+            e2e_summary = {
+                "tps": summarize(e2e),
+                "latency_ms": {
+                    "p50": round(1000.0 / max(percentile(e2e, 0.5), 1e-9), 4),
+                    "p90": round(1000.0 / max(percentile(e2e, 0.1), 1e-9), 4),
+                },
+            }
+        else:
+            e2e_summary = {
+                "latency_ms": summarize(e2e),
+                "tps": {
+                    "p50": round(1000.0 / max(percentile(e2e, 0.5), 1e-9), 4),
+                    "p90": round(1000.0 / max(percentile(e2e, 0.9), 1e-9), 4),
+                },
+            }
+
         results.append(
             {
                 "prompt_length": prompt_length,
-                "prefill_tps": summarize_tps(prefill),
-                "decode_tps": summarize_tps(decode),
-                "e2e": {
-                    "latency_ms_p50": round(1000.0 / max(statistics.mean(e2e), 1e-9), 4),
-                    "latency_ms_p90": round(1000.0 / max(percentile(e2e, 0.1), 1e-9), 4),
-                },
+                "prefill_tps": summarize(prefill),
+                "decode_tps": summarize(decode),
+                "e2e": e2e_summary,
             }
         )
 
@@ -162,6 +170,7 @@ def build_result(cfg: RunConfig) -> Dict[str, Any]:
             "batch_size": cfg.batch_size,
             "warmup": cfg.warmup,
             "repeat": cfg.repeat,
+            "runner_output_unit": cfg.runner_output_unit,
         },
         "results": results,
     }

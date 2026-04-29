@@ -27,6 +27,7 @@ python tools/model_onboarding_agent/bench_tool.py \
   --warmup 3 \
   --repeat 10 \
   --prompt-lengths 128 256 512 1024 \
+  --runner-output-unit tps \
   --output reports/<model_id>/benchmark_results.json
 ```
 
@@ -40,14 +41,18 @@ python tools/model_onboarding_agent/bench_tool.py \
     "threads": 4,
     "batch_size": 1,
     "warmup": 3,
-    "repeat": 10
+    "repeat": 10,
+    "runner_output_unit": "tps"
   },
   "results": [
     {
       "prompt_length": 128,
       "prefill_tps": {"p50": 0.0, "p90": 0.0},
       "decode_tps": {"p50": 0.0, "p90": 0.0},
-      "e2e": {"latency_ms_p50": 0.0, "latency_ms_p90": 0.0}
+      "e2e": {
+        "tps": {"p50": 0.0, "p90": 0.0},
+        "latency_ms": {"p50": 0.0, "p90": 0.0}
+      }
     }
   ]
 }
