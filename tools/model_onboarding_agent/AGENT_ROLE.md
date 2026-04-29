@@ -146,9 +146,9 @@ If any gate fails:
 
 ---
 
-## 12) Codex-First Execution Order (Recommended Fixed Order)
+## 12) Agent-First Execution Order (Recommended Fixed Order)
 
-When a user requests a new model onboarding, Codex should follow this order consistently.
+When a user requests a new model onboarding, the Agent should follow this order consistently.
 Prefer Python API calls over manual CLI execution.
 
 1. Initialize workspace  

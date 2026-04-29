@@ -1,10 +1,10 @@
-# Model Onboarding Agent (Codex-first)
+# Model Onboarding Agent
 
-This directory contains tooling designed primarily for **Codex-driven automation** of new model onboarding, rather than manual script execution by end users.
+This directory contains tooling designed primarily for **Agent-driven automation** of new model onboarding, rather than manual script execution by end users.
 
 ## Quick User Guide
 
-Users should submit a **natural-language request** to Codex like this:
+Users should submit a **natural-language request** to the Agent like this:
 
 ```text
 Please onboard a new model.
@@ -13,13 +13,13 @@ Please onboard a new model.
 - model_id: <model_id>
 
 Requirements:
-1) Follow the Codex-First Execution Order in tools/model_onboarding_agent
+1) Follow the Agent-First Execution Order in tools/model_onboarding_agent
 2) Record FP32 / Q4_0 validation results in reports
 3) Always generate/update benchmark_results.json and onboarding_summary.md
 4) Summarize Merge Gate pass/fail status with evidence at the end
 ```
 
-## Recommended Codex Execution Order
+## Recommended Execution Order
 
 1. Initialize workspace  
    `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)`
