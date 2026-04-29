@@ -178,51 +178,7 @@ CLI 직접 실행보다 Python API 호출을 우선한다.
 
 ---
 
-## 13) 사용자용 Agent 사용법 (User Guide)
+## 13) 사용자 가이드 위치
 
-이 섹션은 **일반 사용자**가 Codex에게 신규 모델 온보딩을 요청할 때 사용할 최소 가이드다.
-원칙적으로 사용자는 스크립트를 직접 실행하지 않고, Codex에게 자연어로 요청한다.
-
-### A. 요청 시 반드시 포함할 정보
-1. Hugging Face 모델 URL  
-2. revision/commit hash (가능하면 필수, 미지정 시 `main`)  
-3. 모델 식별자(`model_id`)  
-
-예시:
-- `HF URL: https://huggingface.co/org/model-name`
-- `revision: 3f2a1bc`
-- `model_id: model-name`
-
-### B. 권장 요청 템플릿
-아래 템플릿을 그대로 복사해서 Codex에 요청:
-
-```text
-새 모델 온보딩을 진행해줘.
-- HF URL: <huggingface_url>
-- revision: <hf_revision_or_commit>
-- model_id: <model_id>
-
-요구사항:
-1) tools/model_onboarding_agent의 Codex-First Execution Order를 따를 것
-2) FP32 / Q4_0 검증 결과를 리포트에 기록할 것
-3) benchmark_results.json과 onboarding_summary.md를 반드시 생성/갱신할 것
-4) Merge Gate 통과 여부와 근거를 마지막에 요약할 것
-```
-
-### C. 실행 후 사용자 확인 포인트
-Codex가 완료 보고를 하면 아래 파일만 확인하면 된다.
-- `reports/<model_id>/onboarding_summary.md`
-- `reports/<model_id>/benchmark_results.json`
-- `reports/<model_id>/optimization_log.md`
-
-특히 `onboarding_summary.md`에서:
-- Benchmark 체크 여부 (`- [x] Benchmark`)
-- 실패/리스크/TODO 기록 여부
-
-### D. 실패 시 재요청 템플릿
-```text
-이전 온보딩에서 실패한 원인을 기준으로 재시도해줘.
-- 동일 model_id 재사용
-- 실패 원인/재현 방법/다음 액션을 onboarding_summary.md와 optimization_log.md에 업데이트
-- 변경된 점(이번 시도에서 추가된 최적화/수정)을 마지막에 요약
-```
+사용자 요청 템플릿/입력값/결과물 확인 방법은
+`tools/model_onboarding_agent/README.md`를 단일 소스로 사용한다.
