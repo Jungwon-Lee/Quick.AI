@@ -37,14 +37,20 @@ The purpose of this Agent is to implement newly requested Hugging Face model arc
 This is the **only** authoritative workflow for the Agent.
 `Agent-First` means this exact mandatory order.
 
-0. Build Quick.AI before starting onboarding
+0. Install required packages/tools before any onboarding action (new first step)
+   - run: `python3 -m pip install --user meson ninja transformers huggingface_hub sentencepiece`
+   - if downloader path requires runtime backend, install it too (e.g., PyTorch)
+   - record install command/results in report
+   - if install fails, stop workflow and record failure reason + reproduction command + next action
+
+1. Build Quick.AI before starting onboarding
    - if `build/` is absent, run
      `meson setup build -Denable-fp16=true -Dthread-backend=omp -Domp-num-threads=4`
    - run `ninja -C build`
    - record build command, result, and any failure evidence in the onboarding
      report before continuing
 
-1. Initialize onboarding workspace and report artifacts
+2. Initialize onboarding workspace and report artifacts
    - meaning: create a model-specific working folder under `tools/model_onboarding_agent/reports/<model_id>/`
    - run `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)`
    - writes initial metadata (HF URL/revision/model_id) and TODO placeholders so later steps append evidence instead of creating ad-hoc files
@@ -54,7 +60,7 @@ This is the **only** authoritative workflow for the Agent.
      - `reports/<model_id>/optimization_log.md`
      - `reports/<model_id>/todo_smoke_test.md`
 
-2. Download model from Hugging Face
+3. Download model from Hugging Face
    - fetch config/tokenizer/weights from `hf_url` (+ revision/hash)
    - use `download_hf_model.py` for the canonical download path
    - call `AutoModelForCausalLM.from_pretrained(...)` by default, or
@@ -64,28 +70,28 @@ This is the **only** authoritative workflow for the Agent.
      model output directory
    - if revision/hash is omitted, use `main` and record reproducibility warning
 
-3. Implement model code while downloading
+4. Implement model code while downloading
    - reference `transformers` or `modeling_<model_name>.py`
    - detect unsupported Quick.AI layers/ops and implement required new layers/ops
 
-4. Implement `weight_converter.py`
+5. Implement `weight_converter.py`
    - convert downloaded weights into a Quick.AI-loadable FP32 `.bin`
 
-5. Validate FP32 `.bin` model
+6. Validate FP32 `.bin` model
    - verify Quick.AI can load and run FP32 model
    - compare outputs with HF/PyTorch reference (and layer-wise checks for large models)
 
-6. Quantize FP32 to Q4_0
+7. Quantize FP32 to Q4_0
    - run `nntrainer_quantize` to generate Q4_0 artifact
 
-7. Validate Q4_0 model
+8. Validate Q4_0 model
    - verify inference stability (no crash, no NaN/Inf, sane output shape/length)
 
-8. Run baseline benchmark (fixed policy)
+9. Run baseline benchmark (fixed policy)
    - `bench_tool.run_benchmark(RunConfig(...))`
    - threads=4, batch=1, warmup=3, repeat=10, prompt_lengths={128,256,512,1024}
 
-9. Execute performance optimization loop (mandatory)
+10. Execute performance optimization loop (mandatory)
    - analyze bottlenecks from benchmark + profiler evidence (prefill/decode split, hot operators, memory movement)
    - prioritize high-impact candidates, for example:
      - KV-cache read/write pattern and allocation reuse
@@ -98,25 +104,16 @@ This is the **only** authoritative workflow for the Agent.
      2) target metric improves vs previous best under identical benchmark settings
    - repeat until no meaningful gain remains or risk/cost becomes too high
 
-10. Update summary/report status
+11. Update summary/report status
    - `run_onboarding_pipeline.update_summary(report_dir, benchmark_path)`
    - record each optimization iteration: hypothesis, change, metrics(before/after), decision(keep/revert)
 
-11. Decide Merge Gate
+12. Decide Merge Gate
    - update `Quick.AI/models/*.py` only when section 9 gate is fully satisfied
    - on failure, stop and record cause/repro/next action
 
 ---
 
-
-## 4.1) Pre-Execution Dependency Gate (Mandatory)
-- Before Step 0, ensure required tools/packages are installed (`meson`, `ninja`, `transformers`, `huggingface_hub`, `sentencepiece`, and runtime backends such as PyTorch when required by downloader path).
-- If dependency installation fails, record evidence in report and stop workflow.
-
-## 4.2) Strict Step-Completion Gate (Mandatory)
-- Do not advance to Step N+1 until Step N is fully completed and evidenced.
-- Any failed/incomplete step must halt the pipeline immediately.
-- On halt, report: failure reason, exact reproduction command, and next action.
 
 ## 5) Validation Policy
 
@@ -243,7 +240,7 @@ flowchart TD
     B --> C[3. Implement model code]
     C --> D[4. Implement weight_converter.py]
     D --> E[5. Validate FP32 .bin]
-    E --> F[6. Quantize FP32 to Q4_0]
+    E --> F[7. Quantize FP32 to Q4_0]
     F --> G[7. Validate Q4_0]
 
     G --> H[8. Run baseline benchmark]

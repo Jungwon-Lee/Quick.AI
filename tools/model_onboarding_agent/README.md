@@ -20,56 +20,42 @@ Requirements:
 ```
 
 
-## Pre-Execution Package Installation (Mandatory)
-
-Before Step 0, install required Python and build packages in the execution environment.
-
-```bash
-python3 -m pip install --user meson ninja transformers huggingface_hub sentencepiece
-```
-
-If packages are missing, the Agent must record the install command/result in onboarding reports and stop at the failing step.
-
-## Step Gate Policy (Mandatory)
-
-The workflow is strictly sequential. If any step fails or is incomplete, the Agent must **not** proceed to the next step.
-
-- Example: if Step 0 build fails, do not execute Step 1+.
-- Example: if Step 2 download fails, do not execute Step 3+.
-- Required action on failure: record failure cause, reproduction command, and next action in reports, then stop.
-
 ## Mandatory Agent Workflow
 
 This is the single required workflow for the Agent (not optional/recommended):
 
-0. Build Quick.AI before starting onboarding:
+0. Install required packages/tools before any onboarding action:
+   `python3 -m pip install --user meson ninja transformers huggingface_hub sentencepiece`
+   (install runtime backend such as PyTorch when required).
+   If this step fails, stop and record failure reason + reproduction command + next action in reports.
+1. Build Quick.AI before starting onboarding:
    `meson setup build -Denable-fp16=true -Dthread-backend=omp -Domp-num-threads=4`
    and `ninja -C build`. If `build/` already exists, run `ninja -C build`.
-1. Initialize workspace via `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)` (creates `reports/<model_id>/` and the four required report artifacts with initial metadata/placeholders).
-2. Download model from Hugging Face URL (with revision/hash) using `download_hf_model.py`.
-3. Implement model code while downloading, referencing `transformers` or `modeling_<model_name>.py`.
-4. Implement `weight_converter.py` to produce Quick.AI-loadable FP32 `.bin`.
-5. Validate FP32 `.bin` load/execution correctness.
-6. Quantize FP32 to Q4_0 using `nntrainer_quantize`.
-7. Validate Q4_0 model functionality/stability.
-8. Run baseline benchmark with fixed policy (`threads=4`, `batch=1`, `warmup=3`, `repeat=10`, lengths `128/256/512/1024`).
-9. Run a mandatory optimization loop: analyze bottleneck -> apply one optimization -> re-validate FP32/Q4_0 -> re-benchmark -> keep/revert based on correctness + metric gain.
-10. Update summary/report artifacts (including per-iteration benchmark + validation evidence).
-11. Apply merge gate decision (`Quick.AI/models/*.py` update only on full pass).
+2. Initialize workspace via `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)` (creates `reports/<model_id>/` and the four required report artifacts with initial metadata/placeholders).
+3. Download model from Hugging Face URL (with revision/hash) using `download_hf_model.py`.
+4. Implement model code while downloading, referencing `transformers` or `modeling_<model_name>.py`.
+5. Implement `weight_converter.py` to produce Quick.AI-loadable FP32 `.bin`.
+6. Validate FP32 `.bin` load/execution correctness.
+7. Quantize FP32 to Q4_0 using `nntrainer_quantize`.
+8. Validate Q4_0 model functionality/stability.
+9. Run baseline benchmark with fixed policy (`threads=4`, `batch=1`, `warmup=3`, `repeat=10`, lengths `128/256/512/1024`).
+10. Run a mandatory optimization loop: analyze bottleneck -> apply one optimization -> re-validate FP32/Q4_0 -> re-benchmark -> keep/revert based on correctness + metric gain.
+11. Update summary/report artifacts (including per-iteration benchmark + validation evidence).
+12. Apply merge gate decision (`Quick.AI/models/*.py` update only on full pass).
 
 ## Agent Workflow Visualization
 
 ```mermaid
 flowchart TD
-    Z["0) Build Quick.AI"] --> A["1) Initialize workspace"]
-    A --> B["2) Download model from HF"]
-    B --> C["3) Implement model code"]
-    C --> D["4) Implement weight_converter.py"]
-    D --> E["5) Validate FP32 bin"]
-    E --> F["6) Quantize FP32 to Q4_0"]
-    F --> G["7) Validate Q4_0"]
+    Y["0) Install required packages"] --> Z["1) Build Quick.AI"] --> A["2) Initialize workspace"]
+    A --> B["3) Download model from HF"]
+    B --> C["4) Implement model code"]
+    C --> D["5) Implement weight_converter.py"]
+    D --> E["6) Validate FP32 bin"]
+    E --> F["7) Quantize FP32 to Q4_0"]
+    F --> G["8) Validate Q4_0"]
 
-    G --> H["8) Run baseline benchmark"]
+    G --> H["9) Run baseline benchmark"]
     H --> I[Analyze bottleneck evidence]
     I --> J{Optimization candidate exists?}
 
@@ -85,10 +71,10 @@ flowchart TD
     P -->|Yes| S[Keep change + update best metrics]
     S --> R
     R -->|No| I
-    R -->|Yes| T[10. Update summary/report]
+    R -->|Yes| T[11. Update summary/report]
 
     J -->|No| T
-    T --> U{"11) Merge Gate passed?"}
+    T --> U{"12) Merge Gate passed?"}
     U -->|Yes| V[Update Quick.AI/models/*.py]
     U -->|No| W[Record failure/repro/next action]
 ```
