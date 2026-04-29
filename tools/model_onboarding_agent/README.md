@@ -24,9 +24,11 @@ Requirements:
 
 This is the single required workflow for the Agent (not optional/recommended):
 
-0. Install required packages/tools before any onboarding action:
-   `python3 -m pip install --user meson ninja transformers huggingface_hub sentencepiece`
-   (install runtime backend such as PyTorch when required).
+0. Install prerequisites before any onboarding action (follow root `README.md` Quick start):
+   - system deps example (Ubuntu): `sudo apt-get install -y libopenblas-dev libflatbuffers-dev flatbuffers-compiler build-essential pkg-config`
+   - python build deps: `pip install meson ninja`
+   - onboarding deps: `python3 -m pip install transformers huggingface_hub sentencepiece`
+   - install runtime backend when required by model download path (e.g., PyTorch)
    If this step fails, stop and record failure reason + reproduction command + next action in reports.
 1. Build Quick.AI before starting onboarding:
    `meson setup build -Denable-fp16=true -Dthread-backend=omp -Domp-num-threads=4`

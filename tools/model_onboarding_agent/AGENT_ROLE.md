@@ -37,8 +37,10 @@ The purpose of this Agent is to implement newly requested Hugging Face model arc
 This is the **only** authoritative workflow for the Agent.
 `Agent-First` means this exact mandatory order.
 
-0. Install required packages/tools before any onboarding action (new first step)
-   - run: `python3 -m pip install --user meson ninja transformers huggingface_hub sentencepiece`
+0. Install prerequisites before any onboarding action (follow root `README.md` Quick start)
+   - system deps example (Ubuntu): `sudo apt-get install -y libopenblas-dev libflatbuffers-dev flatbuffers-compiler build-essential pkg-config`
+   - python build deps: `pip install meson ninja`
+   - onboarding deps: `python3 -m pip install transformers huggingface_hub sentencepiece`
    - if downloader path requires runtime backend, install it too (e.g., PyTorch)
    - record install command/results in report
    - if install fails, stop workflow and record failure reason + reproduction command + next action
