@@ -23,6 +23,9 @@ Requirements:
 
 This is the single required workflow for the Agent (not optional/recommended):
 
+0. Build Quick.AI before starting onboarding:
+   `meson setup build -Denable-fp16=true -Dthread-backend=omp -Domp-num-threads=4`
+   and `ninja -C build`. If `build/` already exists, run `ninja -C build`.
 1. Initialize workspace via `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)` (creates `reports/<model_id>/` and the four required report artifacts with initial metadata/placeholders).
 2. Download model from Hugging Face URL (with revision/hash) using `download_hf_model.py`.
 3. Implement model code while downloading, referencing `transformers` or `modeling_<model_name>.py`.
@@ -39,7 +42,8 @@ This is the single required workflow for the Agent (not optional/recommended):
 
 ```mermaid
 flowchart TD
-    A["1) Initialize workspace"] --> B["2) Download model from HF"]
+    Z["0) Build Quick.AI"] --> A["1) Initialize workspace"]
+    A --> B["2) Download model from HF"]
     B --> C["3) Implement model code"]
     C --> D["4) Implement weight_converter.py"]
     D --> E["5) Validate FP32 bin"]

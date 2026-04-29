@@ -37,6 +37,13 @@ The purpose of this Agent is to implement newly requested Hugging Face model arc
 This is the **only** authoritative workflow for the Agent.
 `Agent-First` means this exact mandatory order.
 
+0. Build Quick.AI before starting onboarding
+   - if `build/` is absent, run
+     `meson setup build -Denable-fp16=true -Dthread-backend=omp -Domp-num-threads=4`
+   - run `ninja -C build`
+   - record build command, result, and any failure evidence in the onboarding
+     report before continuing
+
 1. Initialize onboarding workspace and report artifacts
    - meaning: create a model-specific working folder under `tools/model_onboarding_agent/reports/<model_id>/`
    - run `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)`
@@ -221,7 +228,8 @@ It only maps helper tools to the mandatory steps in section 4.
 
 ```mermaid
 flowchart TD
-    A[1. Initialize workspace] --> B[2. Download model from HF]
+    Z[0. Build Quick.AI] --> A[1. Initialize workspace]
+    A --> B[2. Download model from HF]
     B --> C[3. Implement model code]
     C --> D[4. Implement weight_converter.py]
     D --> E[5. Validate FP32 .bin]
