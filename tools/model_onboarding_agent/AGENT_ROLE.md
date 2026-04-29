@@ -143,3 +143,4 @@
 - 스모크 테스트 체크리스트: `SMOKE_TEST_CHECKLIST_TEMPLATE.md`
 - 벤치마크 Tool 요구사항: `BENCHMARK_TOOL_SPEC.md`
 - 온보딩 리포트 초기화 CLI: `onboarding_cli.py`
+- 온보딩 파이프라인 실행 CLI: `run_onboarding_pipeline.py`
