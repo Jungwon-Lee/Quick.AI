@@ -65,6 +65,16 @@ class BenchToolCLITest(unittest.TestCase):
         self.assertNotEqual(res.returncode, 0)
         self.assertIn("Provide either --mock or --runner-cmd", res.stderr)
 
+    def test_latency_unit_mode_schema(self):
+        res, payload = self.run_tool(
+            ["--runner-cmd", "python -c \"print(10.0)\"", "--runner-output-unit", "latency_ms"]
+        )
+        self.assertEqual(res.returncode, 0, msg=res.stderr)
+        self.assertEqual(payload["runtime"]["runner_output_unit"], "latency_ms")
+        row = payload["results"][0]
+        self.assertIn("latency_ms", row["e2e"])
+        self.assertIn("tps", row["e2e"])
+
 
 if __name__ == "__main__":
     unittest.main()

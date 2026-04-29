@@ -2,6 +2,7 @@
 import subprocess
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +30,8 @@ class PipelineCliTest(unittest.TestCase):
             self.assertEqual(res.returncode, 0, msg=res.stderr)
             self.assertTrue((reports / "m1" / "onboarding_summary.md").exists())
             self.assertTrue((reports / "m1" / "benchmark_results.json").exists())
+            payload = json.loads((reports / "m1" / "benchmark_results.json").read_text())
+            self.assertEqual(payload["runtime"]["runner_output_unit"], "tps")
 
 
 if __name__ == "__main__":

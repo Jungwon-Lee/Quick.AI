@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -16,6 +17,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--reports-root", type=Path, default=Path("reports"))
     p.add_argument("--mock", action="store_true")
     p.add_argument("--runner-cmd")
+    p.add_argument("--runner-output-unit", choices=["tps", "latency_ms"], default="tps")
     p.add_argument("--threads", type=int, default=4)
     p.add_argument("--batch-size", type=int, default=1)
     p.add_argument("--warmup", type=int, default=3)
@@ -34,7 +36,7 @@ def main() -> None:
 
     run(
         [
-            "python",
+            sys.executable,
             "tools/model_onboarding_agent/onboarding_cli.py",
             "--model-id",
             args.model_id,
@@ -48,8 +50,8 @@ def main() -> None:
     )
 
     bench_cmd = [
-        "python",
-        "tools/model_onboarding_agent/bench_tool.py",
+            sys.executable,
+            "tools/model_onboarding_agent/bench_tool.py",
         "--model-id",
         args.model_id,
         "--hf-revision",
@@ -66,6 +68,8 @@ def main() -> None:
         *[str(x) for x in args.prompt_lengths],
         "--output",
         str(report_dir / "benchmark_results.json"),
+        "--runner-output-unit",
+        args.runner_output_unit,
     ]
 
     if args.mock:
