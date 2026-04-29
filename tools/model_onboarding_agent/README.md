@@ -24,7 +24,7 @@ Requirements:
 This is the single required workflow for the Agent (not optional/recommended):
 
 1. Initialize workspace via `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)` (creates `reports/<model_id>/` and the four required report artifacts with initial metadata/placeholders).
-2. Download model from Hugging Face URL (with revision/hash).
+2. Download model from Hugging Face URL (with revision/hash) using `download_hf_model.py`.
 3. Implement model code while downloading, referencing `transformers` or `modeling_<model_name>.py`.
 4. Implement `weight_converter.py` to produce Quick.AI-loadable FP32 `.bin`.
 5. Validate FP32 `.bin` load/execution correctness.
@@ -93,6 +93,24 @@ Stop the loop when 2 consecutive iterations each improve < 3% on both prefill/de
 - `reports/<model_id>/benchmark_results.json`
 - `reports/<model_id>/optimization_log.md`
 - `reports/<model_id>/todo_smoke_test.md`
+
+## Model Download
+
+Use the dedicated downloader for Step 2:
+
+```bash
+python3 tools/model_onboarding_agent/download_hf_model.py \
+  --model https://huggingface.co/google/gemma-4-E2B-it \
+  --revision main \
+  --output-dir /tmp/quickai-gemma-4-E2B-it
+```
+
+The downloader:
+- normalizes a HF URL to a model id when needed
+- calls `AutoModelForCausalLM.from_pretrained(...)` by default
+- supports `--auto-class auto-model` to use `AutoModel.from_pretrained(...)`
+- calls `AutoTokenizer.from_pretrained(...)`
+- saves both with `save_pretrained(output_dir)`
 
 ## Retry Template (After Failure)
 

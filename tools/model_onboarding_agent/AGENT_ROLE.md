@@ -49,6 +49,12 @@ This is the **only** authoritative workflow for the Agent.
 
 2. Download model from Hugging Face
    - fetch config/tokenizer/weights from `hf_url` (+ revision/hash)
+   - use `download_hf_model.py` for the canonical download path
+   - call `AutoModelForCausalLM.from_pretrained(...)` by default, or
+     `AutoModel.from_pretrained(...)` when the requested model is not a causal
+     LM
+   - call `save_pretrained(...)` for the model and tokenizer in the requested
+     model output directory
    - if revision/hash is omitted, use `main` and record reproducibility warning
 
 3. Implement model code while downloading
