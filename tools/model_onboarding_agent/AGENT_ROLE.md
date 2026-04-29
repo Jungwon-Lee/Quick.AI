@@ -38,8 +38,14 @@ This is the **only** authoritative workflow for the Agent.
 `Agent-First` means this exact mandatory order.
 
 1. Initialize onboarding workspace and report artifacts
+   - meaning: create a model-specific working folder under `tools/model_onboarding_agent/reports/<model_id>/`
    - run `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)`
-   - required artifacts: `onboarding_summary.md`, `benchmark_results.json`, `optimization_log.md`, `todo_smoke_test.md`
+   - writes initial metadata (HF URL/revision/model_id) and TODO placeholders so later steps append evidence instead of creating ad-hoc files
+   - required artifacts:
+     - `reports/<model_id>/onboarding_summary.md`
+     - `reports/<model_id>/benchmark_results.json`
+     - `reports/<model_id>/optimization_log.md`
+     - `reports/<model_id>/todo_smoke_test.md`
 
 2. Download model from Hugging Face
    - fetch config/tokenizer/weights from `hf_url` (+ revision/hash)
@@ -159,6 +165,12 @@ If any gate fails:
 - smoke-test automation tool implementation is out of current scope (To Do)
 
 ## 11) Appendix
+
+## 11.1) Term Clarification
+
+- **Initialize onboarding workspace and report artifacts**:
+  bootstrap the per-model report directory and four required files before any model implementation/validation begins.
+
 - Smoke test checklist: `SMOKE_TEST_CHECKLIST_TEMPLATE.md`
 - Benchmark tool spec: `BENCHMARK_TOOL_SPEC.md`
 - Onboarding report initialization CLI: `onboarding_cli.py`

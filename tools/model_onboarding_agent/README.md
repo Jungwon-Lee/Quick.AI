@@ -23,7 +23,7 @@ Requirements:
 
 This is the single required workflow for the Agent (not optional/recommended):
 
-1. Initialize workspace via `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)`.
+1. Initialize workspace via `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)` (creates `reports/<model_id>/` and the four required report artifacts with initial metadata/placeholders).
 2. Download model from Hugging Face URL (with revision/hash).
 3. Implement model code while downloading, referencing `transformers` or `modeling_<model_name>.py`.
 4. Implement `weight_converter.py` to produce Quick.AI-loadable FP32 `.bin`.
@@ -76,3 +76,16 @@ Please retry onboarding based on the previous failure.
 - Update onboarding_summary.md and optimization_log.md with: failure cause, reproduction steps, and next action
 - Summarize what changed in this retry (fixes/optimizations)
 ```
+
+
+## FAQ
+
+### What does "Initialize onboarding workspace and report artifacts" mean?
+
+It means the Agent must first bootstrap `reports/<model_id>/` and create the required files:
+- `onboarding_summary.md`
+- `benchmark_results.json`
+- `optimization_log.md`
+- `todo_smoke_test.md`
+
+This step guarantees that every later workflow stage appends evidence to a consistent report structure.
