@@ -39,25 +39,35 @@ This is the single required workflow for the Agent (not optional/recommended):
 
 ```mermaid
 flowchart TD
-    A[1. Initialize workspace] --> B[2. Download model from Hugging Face]
-    B --> C[3. Implement model code
-(transformers / modeling_<model_name>.py)]
-    C --> D[4. Implement weight_converter.py
-(FP32 .bin conversion)]
-    D --> E[5. Validate FP32 .bin model]
-    E --> F[6. Quantize FP32 to Q4_0
-(nntrainer_quantize)]
-    F --> G[7. Validate Q4_0 model]
+    A[1. Initialize workspace] --> B[2. Download model from HF]
+    B --> C[3. Implement model code]
+    C --> D[4. Implement weight_converter.py]
+    D --> E[5. Validate FP32 .bin]
+    E --> F[6. Quantize FP32 to Q4_0]
+    F --> G[7. Validate Q4_0]
+
     G --> H[8. Run baseline benchmark]
-    H --> I{9. Optimization candidate found?}
-    I -->|Yes| J[Apply 1 optimization]
-    J --> K[Re-validate + Re-benchmark]
-    K --> I
-    I -->|No| L[10. Update summary/report]
-    L --> M{11. Merge Gate passed?}
-    M -->|Yes| N[Update Quick.AI/models/*.py]
-    M -->|No| O[Record failure/repro/next action
-in onboarding_summary.md or optimization_log.md]
+    H --> I[Analyze bottleneck evidence]
+    I --> J{Optimization candidate exists?}
+
+    J -->|Yes| K[Apply exactly one optimization]
+    K --> L[Re-validate FP32/Q4_0]
+    L --> M{Validation pass?}
+    M -->|No| N[Revert change + log reason]
+    N --> I
+    M -->|Yes| O[Re-benchmark under identical settings]
+    O --> P{Metric improved vs best?}
+    P -->|No| Q[Revert change + log result]
+    Q --> R{Exit criteria met?}
+    P -->|Yes| S[Keep change + update best metrics]
+    S --> R
+    R -->|No| I
+    R -->|Yes| T[10. Update summary/report]
+
+    J -->|No| T
+    T --> U{11. Merge Gate passed?}
+    U -->|Yes| V[Update Quick.AI/models/*.py]
+    U -->|No| W[Record failure/repro/next action]
 ```
 
 ## Optimization Loop Checklist
