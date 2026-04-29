@@ -181,10 +181,14 @@ def build_result(cfg: RunConfig) -> Dict[str, Any]:
 
 def main() -> None:
     cfg = parse_args()
+    run_benchmark(cfg)
+
+
+def run_benchmark(cfg: RunConfig) -> Dict[str, Any]:
     payload = build_result(cfg)
     cfg.output.parent.mkdir(parents=True, exist_ok=True)
     cfg.output.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"Saved benchmark report: {cfg.output}")
+    return payload
 
 
 if __name__ == "__main__":

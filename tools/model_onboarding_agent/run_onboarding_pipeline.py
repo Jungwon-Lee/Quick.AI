@@ -5,9 +5,15 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from tools.model_onboarding_agent.bench_tool import RunConfig, run_benchmark  # noqa: E402
+from tools.model_onboarding_agent.onboarding_cli import initialize_workspace  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -25,10 +31,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--repeat", type=int, default=10)
     p.add_argument("--prompt-lengths", nargs="+", type=int, default=[128, 256, 512, 1024])
     return p.parse_args()
-
-
-def run(cmd: list[str]) -> None:
-    subprocess.run(cmd, check=True)
 
 
 def update_summary(report_dir: Path, benchmark_path: Path) -> None:
@@ -61,56 +63,32 @@ def update_summary(report_dir: Path, benchmark_path: Path) -> None:
 
 def main() -> None:
     args = parse_args()
-    report_dir = args.reports_root / args.model_id
+    report_paths = initialize_workspace(args.model_id, args.hf_url, args.hf_revision, args.reports_root)
+    report_dir = report_paths["model_dir"]
 
-    run(
-        [
-            sys.executable,
-            "tools/model_onboarding_agent/onboarding_cli.py",
-            "--model-id",
-            args.model_id,
-            "--hf-url",
-            args.hf_url,
-            "--hf-revision",
-            args.hf_revision,
-            "--root",
-            str(args.reports_root),
-        ]
-    )
-
-    bench_cmd = [
-            sys.executable,
-            "tools/model_onboarding_agent/bench_tool.py",
-        "--model-id",
-        args.model_id,
-        "--hf-revision",
-        args.hf_revision,
-        "--threads",
-        str(args.threads),
-        "--batch-size",
-        str(args.batch_size),
-        "--warmup",
-        str(args.warmup),
-        "--repeat",
-        str(args.repeat),
-        "--prompt-lengths",
-        *[str(x) for x in args.prompt_lengths],
-        "--output",
-        str(report_dir / "benchmark_results.json"),
-        "--runner-output-unit",
-        args.runner_output_unit,
-    ]
-
-    if args.mock:
-        bench_cmd.append("--mock")
-    elif args.runner_cmd:
-        bench_cmd.extend(["--runner-cmd", args.runner_cmd])
-    else:
+    if not args.mock and not args.runner_cmd:
         raise SystemExit("Either --mock or --runner-cmd must be provided")
-
-    run(bench_cmd)
-    update_summary(report_dir, report_dir / "benchmark_results.json")
-    print(f"Onboarding pipeline completed for {args.model_id}: {report_dir}")
+    cfg = RunConfig(
+        model_id=args.model_id,
+        hf_revision=args.hf_revision,
+        threads=args.threads,
+        batch_size=args.batch_size,
+        warmup=args.warmup,
+        repeat=args.repeat,
+        prompt_lengths=sorted(args.prompt_lengths),
+        output=report_dir / "benchmark_results.json",
+        runner_cmd=args.runner_cmd,
+        mock=args.mock,
+        runner_output_unit=args.runner_output_unit,
+    )
+    run_benchmark(cfg)
+    update_summary(report_dir, cfg.output)
+    manifest = {
+        "model_id": args.model_id,
+        "report_dir": str(report_dir),
+        "files": {k: str(v) for k, v in report_paths.items() if k != "model_dir"},
+    }
+    print(json.dumps(manifest, ensure_ascii=False))
 
 
 if __name__ == "__main__":
