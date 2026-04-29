@@ -167,7 +167,25 @@ Prefer Python API calls over manual CLI execution.
    - function/CLI: `run_onboarding_pipeline.main()` or `python tools/model_onboarding_agent/run_onboarding_pipeline.py ...`  
    - purpose: run steps 1~3 in one call and print JSON manifest
 
-5. Decide Merge Gate  
+5. Download model from the Hugging Face URL  
+   - use the provided `hf_url`/revision to fetch model weights and config
+
+6. Implement model code while downloading  
+   - during download, write/align model code by referencing `transformers` or `modeling_<model_name>.py`
+
+7. Implement `weight_converter.py`  
+   - convert downloaded model weights into a Quick.AI-loadable `.bin` format
+
+8. Validate FP32 `.bin` model  
+   - verify the FP32 model loads successfully in Quick.AI
+
+9. Quantize FP32 to Q4_0  
+   - run `nntrainer_quantize` to convert FP32 model to Q4_0
+
+10. Validate Q4_0 model  
+   - verify the quantized Q4_0 model loads/runs correctly
+
+11. Decide Merge Gate  
    - update `Quick.AI/models/*.py` only when section 9 gate is satisfied based on reports/logs
 
 ### Execution Principles

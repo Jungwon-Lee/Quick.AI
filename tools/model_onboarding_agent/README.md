@@ -30,6 +30,15 @@ Requirements:
 4. Optional one-shot entrypoint  
    `python tools/model_onboarding_agent/run_onboarding_pipeline.py ...`
 
+### Additional Onboarding Steps
+
+5. Download model from Hugging Face URL.
+5-1. While downloading, implement model code by referencing `transformers` or `modeling_<model_name>.py`.
+6. Implement `weight_converter.py` to convert downloaded weights into a Quick.AI-loadable `.bin` file.
+7. Validate that the FP32 `.bin` model loads correctly.
+8. After FP32 validation, quantize FP32 to Q4_0 using `nntrainer_quantize`.
+9. Validate the quantized Q4_0 model.
+
 ## Required Inputs
 
 - Hugging Face URL
