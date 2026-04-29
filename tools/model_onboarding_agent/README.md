@@ -1,54 +1,53 @@
 # Model Onboarding Agent (Codex-first)
 
-이 디렉터리는 **사용자가 직접 스크립트를 실행하는 용도보다**, Codex가 신규 모델 온보딩을 자동 수행할 수 있도록 만든 도구 모음입니다.
+This directory contains tooling designed primarily for **Codex-driven automation** of new model onboarding, rather than manual script execution by end users.
 
-## 사용자용 빠른 사용법
+## Quick User Guide
 
-사용자는 아래처럼 **자연어 요청만** Codex에 전달하면 됩니다.
+Users should submit a **natural-language request** to Codex like this:
 
 ```text
-새 모델 온보딩을 진행해줘.
+Please onboard a new model.
 - HF URL: <huggingface_url>
 - revision: <hf_revision_or_commit>
 - model_id: <model_id>
 
-요구사항:
-1) tools/model_onboarding_agent의 Codex-First Execution Order를 따를 것
-2) FP32 / Q4_0 검증 결과를 리포트에 기록할 것
-3) benchmark_results.json과 onboarding_summary.md를 반드시 생성/갱신할 것
-4) Merge Gate 통과 여부와 근거를 마지막에 요약할 것
+Requirements:
+1) Follow the Codex-First Execution Order in tools/model_onboarding_agent
+2) Record FP32 / Q4_0 validation results in reports
+3) Always generate/update benchmark_results.json and onboarding_summary.md
+4) Summarize Merge Gate pass/fail status with evidence at the end
 ```
 
-## Codex 권장 실행 순서
+## Recommended Codex Execution Order
 
-1. 워크스페이스 초기화  
+1. Initialize workspace  
    `onboarding_cli.initialize_workspace(model_id, hf_url, hf_revision, root)`
-2. 벤치마크 실행  
+2. Run benchmark  
    `bench_tool.run_benchmark(RunConfig(...))`
-3. 요약 갱신  
+3. Update summary  
    `run_onboarding_pipeline.update_summary(report_dir, benchmark_path)`
-4. 필요 시 단일 엔트리포인트  
+4. Optional one-shot entrypoint  
    `python tools/model_onboarding_agent/run_onboarding_pipeline.py ...`
 
-## 필수 입력값
+## Required Inputs
 
 - Hugging Face URL
-- revision/commit hash (권장: 명시, 미지정 시 `main`)
+- revision/commit hash (recommended; if omitted, default `main`)
 - model_id
 
-## 결과물 확인 경로
+## Expected Output Files
 
 - `reports/<model_id>/onboarding_summary.md`
 - `reports/<model_id>/benchmark_results.json`
 - `reports/<model_id>/optimization_log.md`
 - `reports/<model_id>/todo_smoke_test.md`
 
-## 실패 시 재요청 템플릿
+## Retry Template (After Failure)
 
 ```text
-이전 온보딩에서 실패한 원인을 기준으로 재시도해줘.
-- 동일 model_id 재사용
-- 실패 원인/재현 방법/다음 액션을 onboarding_summary.md와 optimization_log.md에 업데이트
-- 변경된 점(이번 시도에서 추가된 최적화/수정)을 마지막에 요약
+Please retry onboarding based on the previous failure.
+- Reuse the same model_id
+- Update onboarding_summary.md and optimization_log.md with: failure cause, reproduction steps, and next action
+- Summarize what changed in this retry (fixes/optimizations)
 ```
-
