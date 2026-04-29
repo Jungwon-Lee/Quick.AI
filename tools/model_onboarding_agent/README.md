@@ -19,6 +19,25 @@ Requirements:
 4) Summarize Merge Gate pass/fail status with evidence at the end
 ```
 
+
+## Pre-Execution Package Installation (Mandatory)
+
+Before Step 0, install required Python and build packages in the execution environment.
+
+```bash
+python3 -m pip install --user meson ninja transformers huggingface_hub sentencepiece
+```
+
+If packages are missing, the Agent must record the install command/result in onboarding reports and stop at the failing step.
+
+## Step Gate Policy (Mandatory)
+
+The workflow is strictly sequential. If any step fails or is incomplete, the Agent must **not** proceed to the next step.
+
+- Example: if Step 0 build fails, do not execute Step 1+.
+- Example: if Step 2 download fails, do not execute Step 3+.
+- Required action on failure: record failure cause, reproduction command, and next action in reports, then stop.
+
 ## Mandatory Agent Workflow
 
 This is the single required workflow for the Agent (not optional/recommended):

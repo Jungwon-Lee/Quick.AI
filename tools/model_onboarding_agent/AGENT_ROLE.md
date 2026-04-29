@@ -108,6 +108,16 @@ This is the **only** authoritative workflow for the Agent.
 
 ---
 
+
+## 4.1) Pre-Execution Dependency Gate (Mandatory)
+- Before Step 0, ensure required tools/packages are installed (`meson`, `ninja`, `transformers`, `huggingface_hub`, `sentencepiece`, and runtime backends such as PyTorch when required by downloader path).
+- If dependency installation fails, record evidence in report and stop workflow.
+
+## 4.2) Strict Step-Completion Gate (Mandatory)
+- Do not advance to Step N+1 until Step N is fully completed and evidenced.
+- Any failed/incomplete step must halt the pipeline immediately.
+- On halt, report: failure reason, exact reproduction command, and next action.
+
 ## 5) Validation Policy
 
 ### FP32 (Required)
