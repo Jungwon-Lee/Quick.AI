@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Dict
 
 
 def parse_args() -> argparse.Namespace:
@@ -17,9 +18,8 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-    model_dir = args.root / args.model_id
+def initialize_workspace(model_id: str, hf_url: str, hf_revision: str, root: Path) -> Dict[str, Path]:
+    model_dir = root / model_id
     model_dir.mkdir(parents=True, exist_ok=True)
 
     summary = model_dir / "onboarding_summary.md"
@@ -31,11 +31,11 @@ def main() -> None:
         summary.write_text(
             "\n".join(
                 [
-                    f"# Onboarding Summary: {args.model_id}",
+                    f"# Onboarding Summary: {model_id}",
                     "",
                     f"- Created At (UTC): {datetime.now(timezone.utc).isoformat()}",
-                    f"- HF URL: {args.hf_url}",
-                    f"- HF Revision: {args.hf_revision}",
+                    f"- HF URL: {hf_url}",
+                    f"- HF Revision: {hf_revision}",
                     "",
                     "## Status",
                     "- [ ] Analysis",
@@ -65,7 +65,19 @@ def main() -> None:
             encoding="utf-8",
         )
 
-    print(f"Initialized onboarding workspace: {model_dir}")
+    return {
+        "model_dir": model_dir,
+        "summary": summary,
+        "benchmark": bench,
+        "optimization_log": opt_log,
+        "smoke_todo": smoke,
+    }
+
+
+def main() -> None:
+    args = parse_args()
+    paths = initialize_workspace(args.model_id, args.hf_url, args.hf_revision, args.root)
+    print(f"Initialized onboarding workspace: {paths['model_dir']}")
 
 
 if __name__ == "__main__":

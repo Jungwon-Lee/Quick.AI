@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,7 +95,7 @@ def percentile(values: List[float], p: float) -> float:
 
 def run_external(cmd_template: str, phase: str, prompt_length: int) -> float:
     cmd = cmd_template.format(phase=phase, prompt_length=prompt_length)
-    proc = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+    proc = subprocess.run(shlex.split(cmd), check=True, capture_output=True, text=True)
     stdout = proc.stdout.strip()
     if not stdout:
         raise ValueError("runner command must print numeric value on stdout")
@@ -136,6 +137,8 @@ def build_result(cfg: RunConfig) -> Dict[str, Any]:
         e2e = measure_phase(cfg, "e2e", prompt_length)
 
         if cfg.mock or cfg.runner_output_unit == "tps":
+            # For tps inputs, lower tps implies higher latency. We map latency p90
+            # from tps p10 intentionally (tail-latency proxy).
             e2e_summary = {
                 "tps": summarize(e2e),
                 "latency_ms": {
@@ -178,10 +181,14 @@ def build_result(cfg: RunConfig) -> Dict[str, Any]:
 
 def main() -> None:
     cfg = parse_args()
+    run_benchmark(cfg)
+
+
+def run_benchmark(cfg: RunConfig) -> Dict[str, Any]:
     payload = build_result(cfg)
     cfg.output.parent.mkdir(parents=True, exist_ok=True)
     cfg.output.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    print(f"Saved benchmark report: {cfg.output}")
+    return payload
 
 
 if __name__ == "__main__":
