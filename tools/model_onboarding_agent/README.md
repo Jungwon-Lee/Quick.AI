@@ -30,9 +30,10 @@ This is the single required workflow for the Agent (not optional/recommended):
 5. Validate FP32 `.bin` load/execution correctness.
 6. Quantize FP32 to Q4_0 using `nntrainer_quantize`.
 7. Validate Q4_0 model functionality/stability.
-8. Run benchmark with fixed policy (`threads=4`, `batch=1`, `warmup=3`, `repeat=10`, lengths `128/256/512/1024`).
-9. Update summary/report artifacts (including benchmark + validation evidence).
-10. Apply merge gate decision (`Quick.AI/models/*.py` update only on full pass).
+8. Run baseline benchmark with fixed policy (`threads=4`, `batch=1`, `warmup=3`, `repeat=10`, lengths `128/256/512/1024`).
+9. Run a mandatory optimization loop: analyze bottleneck -> apply one optimization -> re-validate FP32/Q4_0 -> re-benchmark -> keep/revert based on correctness + metric gain.
+10. Update summary/report artifacts (including per-iteration benchmark + validation evidence).
+11. Apply merge gate decision (`Quick.AI/models/*.py` update only on full pass).
 
 ## Agent Workflow Visualization
 
@@ -47,13 +48,28 @@ flowchart TD
     E --> F[6. Quantize FP32 to Q4_0
 (nntrainer_quantize)]
     F --> G[7. Validate Q4_0 model]
-    G --> H[8. Run benchmark]
-    H --> I[9. Update summary/report]
-    I --> J{10. Merge Gate passed?}
-    J -->|Yes| K[Update Quick.AI/models/*.py]
-    J -->|No| L[Record failure/repro/next action
+    G --> H[8. Run baseline benchmark]
+    H --> I{9. Optimization candidate found?}
+    I -->|Yes| J[Apply 1 optimization]
+    J --> K[Re-validate + Re-benchmark]
+    K --> I
+    I -->|No| L[10. Update summary/report]
+    L --> M{11. Merge Gate passed?}
+    M -->|Yes| N[Update Quick.AI/models/*.py]
+    M -->|No| O[Record failure/repro/next action
 in onboarding_summary.md or optimization_log.md]
 ```
+
+## Optimization Loop Checklist
+
+For each iteration, record in `optimization_log.md`:
+1. Bottleneck hypothesis (where/why it is slow)
+2. Single change applied
+3. FP32/Q4_0 re-validation result
+4. Benchmark deltas (prefill/decode/end-to-end)
+5. Decision: keep or revert
+
+Stop the loop when 2 consecutive iterations each improve < 3% on both prefill/decode TPS, or if correctness/stability regresses.
 
 ## Required Inputs
 

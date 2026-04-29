@@ -68,15 +68,28 @@ This is the **only** authoritative workflow for the Agent.
 7. Validate Q4_0 model
    - verify inference stability (no crash, no NaN/Inf, sane output shape/length)
 
-8. Run benchmark (fixed policy)
+8. Run baseline benchmark (fixed policy)
    - `bench_tool.run_benchmark(RunConfig(...))`
    - threads=4, batch=1, warmup=3, repeat=10, prompt_lengths={128,256,512,1024}
 
-9. Update summary/report status
-   - `run_onboarding_pipeline.update_summary(report_dir, benchmark_path)`
-   - record validation/benchmark/optimization evidence
+9. Execute performance optimization loop (mandatory)
+   - analyze bottlenecks from benchmark + profiler evidence (prefill/decode split, hot operators, memory movement)
+   - prioritize high-impact candidates, for example:
+     - KV-cache read/write pattern and allocation reuse
+     - redundant tensor copies / dtype casts / layout transforms
+     - operator fusion opportunities and unnecessary graph breaks
+     - thread affinity / parallel granularity on CPU
+   - apply one optimization at a time, then re-run FP32/Q4_0 validation + benchmark
+   - keep changes only when both conditions are met:
+     1) correctness gates still pass, and
+     2) target metric improves vs previous best under identical benchmark settings
+   - repeat until no meaningful gain remains or risk/cost becomes too high
 
-10. Decide Merge Gate
+10. Update summary/report status
+   - `run_onboarding_pipeline.update_summary(report_dir, benchmark_path)`
+   - record each optimization iteration: hypothesis, change, metrics(before/after), decision(keep/revert)
+
+11. Decide Merge Gate
    - update `Quick.AI/models/*.py` only when section 9 gate is fully satisfied
    - on failure, stop and record cause/repro/next action
 
@@ -117,6 +130,13 @@ This is the **only** authoritative workflow for the Agent.
   3) end-to-end prefill&decode TPS/latency
 
 Always compare optimization before/after under identical conditions and record results in a tabular format.
+
+### Optimization Loop Exit Criteria (Mandatory)
+- Stop when one of the following is true:
+  1) last 2 consecutive iterations improve < 3% on both prefill/decode TPS
+  2) optimization introduces instability/correctness regression
+  3) complexity cost is high relative to observed gain
+- Final report must include: best iteration id, kept optimizations, reverted optimizations, and rationale.
 
 ---
 
@@ -185,7 +205,8 @@ It only maps helper tools to the mandatory steps in section 4.
 
 - Step 1: `onboarding_cli.initialize_workspace(...)`
 - Step 8: `bench_tool.run_benchmark(RunConfig(...))`
-- Step 9: `run_onboarding_pipeline.update_summary(...)`
+- Step 9: iterative loop with repeated validation + benchmark runs
+- Step 10: `run_onboarding_pipeline.update_summary(...)`
 - Optional convenience wrapper: `run_onboarding_pipeline.main()`
   - executes selected helper steps in one call
   - must still follow section 4 order and gates
@@ -200,11 +221,15 @@ flowchart TD
     D --> E[5. Validate FP32 .bin]
     E --> F[6. Quantize FP32 to Q4_0]
     F --> G[7. Validate Q4_0]
-    G --> H[8. Run benchmark]
-    H --> I[9. Update summary/report]
-    I --> J{10. Merge Gate passed?}
-    J -->|Yes| K[Update Quick.AI/models/*.py]
-    J -->|No| L[Record failure/repro/next action]
+    G --> H[8. Run baseline benchmark]
+    H --> I{9. Optimization candidate found?}
+    I -->|Yes| J[Apply 1 optimization]
+    J --> K[Re-validate FP32/Q4_0 + Re-benchmark]
+    K --> I
+    I -->|No| L[10. Update summary/report]
+    L --> M{11. Merge Gate passed?}
+    M -->|Yes| N[Update Quick.AI/models/*.py]
+    M -->|No| O[Record failure/repro/next action]
 ```
 
 ### Execution Principles
