@@ -13,12 +13,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libiniparser-dev \
     libomp-dev \
     libopenblas-dev \
+    npm \
     pkg-config \
     python3 \
     python3-pip \
     python3-venv \
     wget \
-  && python3 -m pip install --break-system-packages --no-cache-dir meson ninja \
+  && python3 -m pip install --break-system-packages --no-cache-dir \
+    meson \
+    ninja \
+    numpy \
+    torch \
+    transformers \
+    safetensors \
+    huggingface_hub \
+    accelerate \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
