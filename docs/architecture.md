@@ -155,4 +155,8 @@ The `*-slim` model variants under `models/` use FSU to stream MoE experts from d
 4. Add the family enum + factory entry in [`factory.h`](../factory.h) so `loadModel` can dispatch to it.
 5. (Optional) Implement custom layers under `layers/` and append the resulting deps to `quick_dot_ai_layer_dependencies` in the top-level `meson.build`.
 
-A model author guide with concrete examples lives in [`models/README.md`](../models/README.md).
+A model author guide with concrete examples lives in
+[`models/README.md`](../models/README.md). For a reusable Codex subagent
+workflow that starts from a Hugging Face link and produces reviewable model
+support patches, see the
+[`Model Porting Harness`](model_porting_harness.md).
