@@ -48,7 +48,7 @@ protected:
 
   void registerCustomLayers() override;
 
-private:
+protected:
   static json &normalizeConfig(json &cfg);
 
   unsigned int NUM_EXPERTS;

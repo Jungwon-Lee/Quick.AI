@@ -10,6 +10,8 @@ project('quick_dot_ai', 'c', 'cpp',
   ],
 )
 
+fs = import('fs')
+
 # Pull in nntrainer via the bundled submodule as a meson subproject.
 # We disable Applications so that nntrainer's own (now legacy) in-tree
 # Applications/CausalLM is not built alongside this standalone one, and
@@ -131,3 +133,17 @@ test_api = executable('quick_dot_ai_test_api',
     build_by_default: true,
     install: false,
 )
+
+if fs.exists(meson.current_source_dir() / 'test_smallthinker_moe.cpp')
+    test_smallthinker_moe_src = [
+        meson.current_source_dir() / 'test_smallthinker_moe.cpp',
+    ]
+
+    test_smallthinker_moe = executable('quick_dot_ai_test_smallthinker_moe',
+        test_smallthinker_moe_src,
+        include_directories: quick_dot_ai_inc,
+        dependencies: [nntrainer_dep, nntrainer_ccapi_dep, quick_dot_ai_layer_dependencies, quick_dot_ai_dep],
+        build_by_default: true,
+        install: false,
+    )
+endif
