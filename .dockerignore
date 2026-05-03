@@ -1,0 +1,12 @@
+.git
+build
+build_*
+jni/libs
+logs
+res
+*.bin
+*.gguf
+*.safetensors
+*.onnx
+*.tar
+*.tar.gz
