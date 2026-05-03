@@ -34,6 +34,7 @@
 #include "gemma3_causallm.h"
 #include "gptoss_cached_slim_causallm.h"
 #include "gptoss_causallm.h"
+#include "lfm2_causallm.h"
 #include "qwen2_causallm.h"
 #include "qwen2_embedding.h"
 #include "qwen3_cached_slim_moe_causallm.h"
@@ -191,6 +192,11 @@ int main(int argc, char *argv[]) {
     "Gemma3ForCausalLM", [](json cfg, json generation_cfg, json nntr_cfg) {
       return std::make_unique<quick_dot_ai::Gemma3CausalLM>(cfg, generation_cfg,
                                                         nntr_cfg);
+    });
+  quick_dot_ai::Factory::Instance().registerModel(
+    "Lfm2ForCausalLM", [](json cfg, json generation_cfg, json nntr_cfg) {
+      return std::make_unique<quick_dot_ai::Lfm2CausalLM>(cfg, generation_cfg,
+                                                      nntr_cfg);
     });
   quick_dot_ai::Factory::Instance().registerModel(
     "EmbeddingGemma", [](json cfg, json generation_cfg, json nntr_cfg) {

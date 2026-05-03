@@ -25,6 +25,7 @@
 #include "gptoss_cached_slim_causallm.h"
 #include "gptoss_causallm.h"
 #include "json.hpp"
+#include "lfm2_causallm.h"
 #include "model_config_internal.h"
 #include "qwen2_causallm.h"
 #include "qwen3_cached_slim_moe_causallm.h"
@@ -117,6 +118,11 @@ static void register_models() {
         return std::make_unique<quick_dot_ai::Gemma3CausalLM>(cfg, generation_cfg,
                                                           nntr_cfg);
       });
+    quick_dot_ai::Factory::Instance().registerModel(
+      "Lfm2ForCausalLM", [](json cfg, json generation_cfg, json nntr_cfg) {
+        return std::make_unique<quick_dot_ai::Lfm2CausalLM>(cfg, generation_cfg,
+                                                        nntr_cfg);
+      });
 
     // Register built-in configurations
     register_builtin_model_configs();
@@ -141,7 +147,8 @@ static std::string apply_chat_template(const std::string &architecture,
              architecture == "Qwen3ForCausalLM" ||
              architecture == "Qwen3MoeForCausalLM" ||
              architecture == "Qwen3SlimMoeForCausalLM" ||
-             architecture == "Qwen3CachedSlimMoeForCausalLM") {
+             architecture == "Qwen3CachedSlimMoeForCausalLM" ||
+             architecture == "Lfm2ForCausalLM") {
     // Qwen chat format
     // <|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n
     // Note: assuming model handles tokenizer specific special tokens or we

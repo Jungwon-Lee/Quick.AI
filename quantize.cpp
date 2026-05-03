@@ -71,6 +71,7 @@
 #include "gemma3_causallm.h"
 #include "gptoss_cached_slim_causallm.h"
 #include "gptoss_causallm.h"
+#include "lfm2_causallm.h"
 #include "qwen2_causallm.h"
 #include "qwen2_embedding.h"
 #include "qwen3_cached_slim_moe_causallm.h"
@@ -260,6 +261,11 @@ void registerAllModels() {
                           return std::make_unique<quick_dot_ai::Gemma3CausalLM>(
                             cfg, generation_cfg, nntr_cfg);
                         });
+  factory.registerModel("Lfm2ForCausalLM",
+                        [](json cfg, json generation_cfg, json nntr_cfg) {
+                          return std::make_unique<quick_dot_ai::Lfm2CausalLM>(
+                            cfg, generation_cfg, nntr_cfg);
+                        });
   factory.registerModel("EmbeddingGemma",
                         [](json cfg, json generation_cfg, json nntr_cfg) {
                           return std::make_unique<quick_dot_ai::EmbeddingGemma>(
@@ -332,7 +338,8 @@ void printUsage(const char *prog) {
  */
 std::map<std::string, DataType>
 buildLayerDtypeMap(int num_layers, DataType fc_dtype, DataType embd_dtype,
-                   DataType lmhead_dtype, bool tie_word_embeddings) {
+                   DataType lmhead_dtype, bool tie_word_embeddings,
+                   const std::vector<std::string> &layer_types = {}) {
 
   std::map<std::string, DataType> dtype_map;
 
@@ -347,14 +354,26 @@ buildLayerDtypeMap(int num_layers, DataType fc_dtype, DataType embd_dtype,
 
     // Attention FC layers
     if (fc_dtype != DataType::FP32 && fc_dtype != DataType::NONE) {
-      dtype_map[prefix + "_wq"] = fc_dtype;
-      dtype_map[prefix + "_wk"] = fc_dtype;
-      dtype_map[prefix + "_wv"] = fc_dtype;
-      dtype_map[prefix + "_attention_out"] = fc_dtype;
+      const bool lfm2_conv_layer =
+        !layer_types.empty() && layer_types[i] != "full_attention";
+      if (lfm2_conv_layer) {
+        dtype_map[prefix + "_conv_in"] = fc_dtype;
+        dtype_map[prefix + "_conv_out"] = fc_dtype;
+      } else {
+        dtype_map[prefix + "_wq"] = fc_dtype;
+        dtype_map[prefix + "_wk"] = fc_dtype;
+        dtype_map[prefix + "_wv"] = fc_dtype;
+        dtype_map[prefix + "_attention_out"] = fc_dtype;
+      }
 
       // FFN FC layers
-      dtype_map[prefix + "_ffn_up"] = fc_dtype;
-      dtype_map[prefix + "_ffn_gate"] = fc_dtype;
+      if (layer_types.empty()) {
+        dtype_map[prefix + "_ffn_up"] = fc_dtype;
+        dtype_map[prefix + "_ffn_gate"] = fc_dtype;
+      } else {
+        dtype_map[prefix + "_ffn_w1"] = fc_dtype;
+        dtype_map[prefix + "_ffn_w3"] = fc_dtype;
+      }
       dtype_map[prefix + "_ffn_down"] = fc_dtype;
     }
   }
@@ -477,7 +496,10 @@ int main(int argc, char *argv[]) {
     std::string dst_weight_path = output_dir + "/" + output_bin_name;
 
     int num_layers = cfg["num_hidden_layers"].get<int>();
-    bool tie_word_embeddings = cfg["tie_word_embeddings"].get<bool>();
+    bool tie_word_embeddings =
+      cfg.contains("tie_word_embeddings")
+        ? cfg["tie_word_embeddings"].get<bool>()
+        : cfg.value("tie_embedding", false);
 
     std::cout << "  Architecture: "
               << cfg["architectures"].get<std::vector<std::string>>()[0]
@@ -527,8 +549,12 @@ int main(int argc, char *argv[]) {
     std::cout << "[4/5] Quantizing and saving weights to: " << dst_weight_path
               << "\n";
 
+    std::vector<std::string> layer_types;
+    if (cfg.contains("layer_types"))
+      layer_types = cfg["layer_types"].get<std::vector<std::string>>();
     auto layer_dtype_map = buildLayerDtypeMap(
-      num_layers, fc_dtype, embd_dtype, lmhead_dtype, tie_word_embeddings);
+      num_layers, fc_dtype, embd_dtype, lmhead_dtype, tie_word_embeddings,
+      layer_types);
 
     std::cout << "  Layer dtype mapping (" << layer_dtype_map.size()
               << " layers targeted):\n";
