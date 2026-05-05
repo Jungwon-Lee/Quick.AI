@@ -1,0 +1,100 @@
+// SPDX-License-Identifier: Apache-2.0
+#pragma once
+
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
+
+#include "json.hpp"
+
+namespace quick_dot_ai {
+namespace quantize {
+
+using json = nlohmann::json;
+
+enum class DType {
+  FP32,
+  Q4_0,
+  Q4_K,
+  Q6_K,
+};
+
+struct QuantPlan {
+  DType fc_dtype = DType::Q4_0;
+  DType embd_dtype = DType::FP32;
+  DType lmhead_dtype = DType::FP32;
+};
+
+struct ModelPlan {
+  std::string architecture;
+  std::string layout;
+  size_t hidden;
+  size_t vocab;
+  size_t layers;
+  size_t heads;
+  size_t kv_heads;
+  size_t head_dim;
+  size_t intermediate;
+  size_t experts = 0;
+  bool tied_embeddings = true;
+};
+
+class TensorWriter {
+public:
+  TensorWriter(std::ifstream &input, std::ofstream &output);
+
+  void copyBytes(size_t bytes, const std::string &name);
+  void copyFp32Tensor(size_t elements, const std::string &name);
+  void writeTransposedMatrix(size_t height, size_t width, DType dtype,
+                             const std::string &name);
+  void quantizeFcWithBias(size_t height, size_t width, DType dtype,
+                          const std::string &name);
+  void quantizeEmbedding(size_t rows, size_t cols, DType dtype,
+                         const std::string &name,
+                         std::vector<float> *source_cache = nullptr);
+  void quantizeTiedLmHead(const std::vector<float> &embedding, size_t vocab,
+                          size_t hidden, DType dtype, const std::string &name);
+
+private:
+  void writeMatrix(const std::vector<float> &source, size_t rows, size_t cols,
+                   DType dtype, const std::string &name);
+
+  std::ifstream &input_;
+  std::ofstream &output_;
+};
+
+using LayerWriter = void (*)(TensorWriter &, const ModelPlan &,
+                             const QuantPlan &, size_t);
+
+struct ModelRecipe {
+  std::vector<std::string> architectures;
+  std::string layout;
+  std::string intermediate_key;
+  std::string experts_key;
+  LayerWriter write_layer = nullptr;
+};
+
+class RecipeRegistry {
+public:
+  void add(ModelRecipe recipe);
+
+  const ModelRecipe &find(const std::string &architecture) const;
+  ModelPlan makePlan(const json &cfg) const;
+  std::vector<std::string> supportedArchitectures() const;
+
+private:
+  std::vector<ModelRecipe> recipes_;
+};
+
+json readJson(const std::filesystem::path &path);
+std::string architectureName(const json &cfg);
+
+DType parseDType(const std::string &value);
+std::string dtypeName(DType dtype);
+std::string dtypeSuffix(DType dtype);
+
+void registerBuiltInRecipes(RecipeRegistry &registry);
+
+} // namespace quantize
+} // namespace quick_dot_ai

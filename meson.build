@@ -120,6 +120,18 @@ e_quantize = executable('quick_dot_ai_quantize',
 )
 
 
+quantize_stream_src = [
+    meson.current_source_dir() / 'tools' / 'quantize_stream.cpp',
+    meson.current_source_dir() / 'tools' / 'quantize_stream_models.cpp',
+]
+
+e_quantize_stream = executable('quick_dot_ai_quantize_stream',
+    quantize_stream_src,
+    include_directories: quick_dot_ai_inc,
+    dependencies: [nntrainer_dep, nntrainer_ccapi_dep],
+)
+
+
 test_api_src = [
     meson.current_source_dir() / 'api' / 'test_api.cpp',
 ]
