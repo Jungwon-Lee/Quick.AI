@@ -1,0 +1,20 @@
+{
+    "bad_word_ids": [],
+    "batch_size": 1,
+    "embedding_dtype": "FP32",
+    "fc_layer_dtype": "FP32",
+    "fsu": false,
+    "fsu_lookahead": 2,
+    "init_seq_len": 64,
+    "lmhead_dtype": "FP32",
+    "lora_alpha": 0,
+    "lora_rank": 0,
+    "lora_target": [],
+    "max_seq_len": 64,
+    "model_file_name": "nntr_smallthinker_4ba0.6b_fp32.bin",
+    "model_tensor_type": "FP32-FP32",
+    "model_type": "CausalLM",
+    "num_to_generate": 128,
+    "sample_input": "<|startoftext|><|im_start|>user\nGive me a short introduction to large language model.<|im_end|>\n<|im_start|>assistant\n",
+    "tokenizer_file": "./res/smallthinker/SmallThinker-4BA0.6B-Instruct/tokenizer.json"
+}
