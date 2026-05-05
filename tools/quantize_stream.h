@@ -57,8 +57,16 @@ public:
                           size_t hidden, DType dtype, const std::string &name);
 
 private:
+  std::vector<float> readFp32Tensor(size_t elements, const std::string &name);
+  void writeFp32Tensor(const std::vector<float> &source,
+                       const std::string &name);
+  std::vector<float> transposeMatrix(const std::vector<float> &source,
+                                     size_t height, size_t width) const;
   void writeMatrix(const std::vector<float> &source, size_t rows, size_t cols,
                    DType dtype, const std::string &name);
+  void writeQuantizedMatrix(const std::vector<float> &source, size_t rows,
+                            size_t cols, DType dtype, const std::string &name,
+                            bool repack = true);
 
   std::ifstream &input_;
   std::ofstream &output_;

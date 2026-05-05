@@ -110,7 +110,7 @@ void copyMetadata(const std::filesystem::path &model_dir,
   nntr_cfg["embedding_dtype"] = dtypeName(quant_plan.embd_dtype);
   nntr_cfg["lmhead_dtype"] = dtypeName(quant_plan.lmhead_dtype);
   nntr_cfg["num_to_generate"] = 8;
-  nntr_cfg["init_seq_len"] = 16;
+  nntr_cfg["init_seq_len"] = 64;
   nntr_cfg["max_seq_len"] = 64;
 
   std::ofstream config_out(output_dir / "nntr_config.json");
@@ -377,39 +377,86 @@ void TensorWriter::copyFp32Tensor(size_t elements, const std::string &name) {
   copyBytes(elements * sizeof(float), name);
 }
 
+std::vector<float> TensorWriter::readFp32Tensor(size_t elements,
+                                                const std::string &name) {
+  std::vector<float> source(elements);
+  input_.read(reinterpret_cast<char *>(source.data()),
+              static_cast<std::streamsize>(elements * sizeof(float)));
+  if (input_.gcount() !=
+      static_cast<std::streamsize>(elements * sizeof(float))) {
+    throw std::runtime_error("Unexpected EOF while reading " + name);
+  }
+  return source;
+}
+
+void TensorWriter::writeFp32Tensor(const std::vector<float> &source,
+                                   const std::string &name) {
+  output_.write(reinterpret_cast<const char *>(source.data()),
+                static_cast<std::streamsize>(source.size() * sizeof(float)));
+  if (!output_) {
+    throw std::runtime_error("Failed to write " + name);
+  }
+}
+
+std::vector<float>
+TensorWriter::transposeMatrix(const std::vector<float> &source, size_t height,
+                              size_t width) const {
+  std::vector<float> transposed(source.size());
+  for (size_t h = 0; h < height; ++h) {
+    for (size_t w = 0; w < width; ++w) {
+      transposed[w * height + h] = source[h * width + w];
+    }
+  }
+  return transposed;
+}
+
 void TensorWriter::writeMatrix(const std::vector<float> &source, size_t rows,
                                size_t cols, DType dtype,
                                const std::string &name) {
-  const size_t output_size = quantizedSize(dtype, rows, cols);
-
   if (dtype == DType::FP32) {
-    output_.write(reinterpret_cast<const char *>(source.data()),
-                  static_cast<std::streamsize>(output_size));
-    if (!output_) {
-      throw std::runtime_error("Failed to write " + name);
-    }
+    writeFp32Tensor(source, name);
     return;
   }
 
-  std::vector<char> tmp(output_size);
+  writeQuantizedMatrix(source, rows, cols, dtype, name);
+}
+
+void TensorWriter::writeQuantizedMatrix(const std::vector<float> &source,
+                                        size_t rows, size_t cols, DType dtype,
+                                        const std::string &name, bool repack) {
+  const size_t output_size = quantizedSize(dtype, rows, cols);
   std::vector<char> quantized(output_size);
 
   switch (dtype) {
   case DType::Q4_0:
-    nntrainer::quantize_q4_0(source.data(), tmp.data(),
-                             static_cast<int64_t>(rows),
-                             static_cast<int64_t>(cols), nullptr);
-    nntrainer::repack_q4_0(quantized.data(), tmp.data(), output_size,
-                           static_cast<unsigned int>(rows),
-                           static_cast<unsigned int>(cols));
+    if (repack) {
+      std::vector<char> tmp(output_size);
+      nntrainer::quantize_q4_0(source.data(), tmp.data(),
+                               static_cast<int64_t>(rows),
+                               static_cast<int64_t>(cols), nullptr);
+      nntrainer::repack_q4_0(quantized.data(), tmp.data(), output_size,
+                             static_cast<unsigned int>(rows),
+                             static_cast<unsigned int>(cols));
+    } else {
+      nntrainer::quantize_q4_0(source.data(), quantized.data(),
+                               static_cast<int64_t>(rows),
+                               static_cast<int64_t>(cols), nullptr);
+    }
     break;
   case DType::Q4_K:
-    nntrainer::quantize_q4_K(source.data(), tmp.data(),
-                             static_cast<int64_t>(rows),
-                             static_cast<int64_t>(cols), nullptr);
-    nntrainer::repack_q4_K(quantized.data(), tmp.data(), output_size,
-                           static_cast<unsigned int>(rows),
-                           static_cast<unsigned int>(cols));
+    if (repack) {
+      std::vector<char> tmp(output_size);
+      nntrainer::quantize_q4_K(source.data(), tmp.data(),
+                               static_cast<int64_t>(rows),
+                               static_cast<int64_t>(cols), nullptr);
+      nntrainer::repack_q4_K(quantized.data(), tmp.data(), output_size,
+                             static_cast<unsigned int>(rows),
+                             static_cast<unsigned int>(cols));
+    } else {
+      nntrainer::quantize_q4_K(source.data(), quantized.data(),
+                               static_cast<int64_t>(rows),
+                               static_cast<int64_t>(cols), nullptr);
+    }
     break;
   case DType::Q6_K:
     nntrainer::quantize_q6_K(source.data(), quantized.data(),
@@ -417,7 +464,8 @@ void TensorWriter::writeMatrix(const std::vector<float> &source, size_t rows,
                              static_cast<int64_t>(cols), nullptr);
     break;
   case DType::FP32:
-    break;
+    throw std::invalid_argument("writeQuantizedMatrix called with FP32 for " +
+                                name);
   }
 
   output_.write(quantized.data(),
@@ -430,21 +478,8 @@ void TensorWriter::writeMatrix(const std::vector<float> &source, size_t rows,
 void TensorWriter::writeTransposedMatrix(size_t height, size_t width,
                                          DType dtype, const std::string &name) {
   const size_t elements = height * width;
-  std::vector<float> source(elements);
-  input_.read(reinterpret_cast<char *>(source.data()),
-              static_cast<std::streamsize>(elements * sizeof(float)));
-  if (input_.gcount() !=
-      static_cast<std::streamsize>(elements * sizeof(float))) {
-    throw std::runtime_error("Unexpected EOF while reading " + name);
-  }
-
-  std::vector<float> transposed(elements);
-  for (size_t h = 0; h < height; ++h) {
-    for (size_t w = 0; w < width; ++w) {
-      transposed[w * height + h] = source[h * width + w];
-    }
-  }
-
+  const std::vector<float> source = readFp32Tensor(elements, name);
+  const std::vector<float> transposed = transposeMatrix(source, height, width);
   writeMatrix(transposed, width, height, dtype, name);
 }
 
@@ -458,15 +493,20 @@ void TensorWriter::quantizeEmbedding(size_t rows, size_t cols, DType dtype,
                                      const std::string &name,
                                      std::vector<float> *source_cache) {
   const size_t elements = rows * cols;
-  std::vector<float> source(elements);
-  input_.read(reinterpret_cast<char *>(source.data()),
-              static_cast<std::streamsize>(elements * sizeof(float)));
-  if (input_.gcount() !=
-      static_cast<std::streamsize>(elements * sizeof(float))) {
-    throw std::runtime_error("Unexpected EOF while reading " + name);
-  }
+  std::vector<float> source = readFp32Tensor(elements, name);
 
-  writeMatrix(source, rows, cols, dtype, name);
+  switch (dtype) {
+  case DType::Q4_0:
+  case DType::Q6_K:
+    writeQuantizedMatrix(source, rows, cols, dtype, name, false);
+    break;
+  case DType::Q4_K:
+    throw std::invalid_argument(
+      "Q4_K embedding is not supported by EmbeddingLayer save/runtime");
+  case DType::FP32:
+    writeMatrix(source, rows, cols, dtype, name);
+    break;
+  }
 
   if (source_cache) {
     *source_cache = std::move(source);
