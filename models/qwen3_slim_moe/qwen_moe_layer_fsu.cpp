@@ -332,8 +332,6 @@ inline void SlimMoELayer::compute_expert_forward_no_critical(
                                         input.getTensorType());
   nntrainer::TensorDim token_output_dim({1, 1, num_tokens, hidden_size},
                                         input.getTensorType());
-  nntrainer::TensorDim out_step_dim({1, 1, 1, hidden_size},
-                                    input.getTensorType());
 
   nntrainer::Tensor token_input(token_input_dim);
   const unsigned first_token_idx = token_assignments[0].first;
@@ -362,20 +360,7 @@ inline void SlimMoELayer::compute_expert_forward_no_critical(
   acti_func.run_fn(gate_out, acti_out);
   token_input.dot(up_proj, up_out);
   acti_out.multiply_i(up_out);
-  acti_out.dot(down_proj, token_expert_output);
-
-#pragma omp parallel for schedule(static) if (num_tokens > 4)
-  for (size_t i = 0; i < num_tokens; ++i) {
-    const unsigned token_idx = token_assignments[i].first;
-    const float weight = token_assignments[i].second;
-    size_t output_offset = token_idx * hidden_size;
-    nntrainer::Tensor token_output =
-      expert_output.getSharedDataTensor(out_step_dim, output_offset, true);
-    nntrainer::Tensor target = token_expert_output.getSharedDataTensor(
-      out_step_dim, i * hidden_size, true);
-    target.multiply_i(weight);
-    token_output.add(target, token_output);
-  }
+  acti_out.dot(down_proj, expert_output);
 }
 
 void SlimMoELayer::incremental_forwarding(nntrainer::RunLayerContext &context,
@@ -456,10 +441,10 @@ void SlimMoELayer::incremental_forwarding(nntrainer::RunLayerContext &context,
          target_idx < static_cast<int>(target_idx_vector.size());
          ++target_idx) {
       const int expert_idx = target_idx_vector[target_idx];
+      const auto &assignments = expert_assignments[expert_idx];
       expert_outputs[expert_idx] =
-        nntrainer::Tensor(total_tokens, 1, 1, hidden_size,
+        nntrainer::Tensor(1, 1, assignments.size(), hidden_size,
                           output.getTensorType());
-      expert_outputs[expert_idx].setZero();
     }
 
 #pragma omp parallel for schedule(dynamic)                                      \
@@ -491,8 +476,21 @@ void SlimMoELayer::incremental_forwarding(nntrainer::RunLayerContext &context,
     }
 
     // Combine expert outputs
+    nntrainer::TensorDim out_step_dim({1, 1, 1, hidden_size},
+                                      output.getTensorType());
     for (int expert_idx : target_idx_vector) {
-        output.add_i(expert_outputs[expert_idx]);
+      const auto &assignments = expert_assignments[expert_idx];
+      for (size_t i = 0; i < assignments.size(); ++i) {
+        const unsigned token_idx = assignments[i].first;
+        const float weight = assignments[i].second;
+        nntrainer::Tensor token_output = output.getSharedDataTensor(
+          out_step_dim, token_idx * hidden_size, true);
+        nntrainer::Tensor target = expert_outputs[expert_idx]
+                                     .getSharedDataTensor(
+                                       out_step_dim, i * hidden_size, true);
+        target.multiply_i(weight);
+        token_output.add(target, token_output);
+      }
     }
 
     // reshape output: [B*S,1,1,H] -> [B,1,S,H]

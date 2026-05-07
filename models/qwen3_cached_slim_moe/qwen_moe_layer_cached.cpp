@@ -190,8 +190,6 @@ inline void CachedSlimMoELayer::compute_expert_forward(
                                         input.getTensorType());
   nntrainer::TensorDim token_output_dim({1, 1, num_tokens, hidden_size},
                                         input.getTensorType());
-  nntrainer::TensorDim out_step_dim({1, 1, 1, hidden_size},
-                                    input.getTensorType());
   // Create intermediate tensors for this token
   nntrainer::Tensor gate_out(intermediate_dim);
   nntrainer::Tensor acti_out(intermediate_dim);
@@ -245,19 +243,7 @@ inline void CachedSlimMoELayer::compute_expert_forward(
   }
 
   acti_out.dot(down_proj, token_expert_output);
-
-  // accumulate to output
-  for (size_t i = 0; i < num_tokens; ++i) {
-    token_idx = token_assignments[i].first;
-    weight = token_assignments[i].second;
-    size_t output_offset = token_idx * hidden_size;
-    nntrainer::Tensor token_output =
-      output.getSharedDataTensor(out_step_dim, output_offset, true);
-    nntrainer::Tensor target = token_expert_output.getSharedDataTensor(
-      out_step_dim, i * hidden_size, true);
-    target.multiply_i(weight);
-    token_output.add(target, token_output);
-  }
+  output.copyData(token_expert_output);
 }
 
 void CachedSlimMoELayer::incremental_forwarding(
@@ -362,10 +348,10 @@ void CachedSlimMoELayer::incremental_forwarding(
          target_idx < static_cast<int>(target_idx_vector.size());
          ++target_idx) {
       const int expert_idx = target_idx_vector[target_idx];
+      const auto &assignments = expert_assignments[expert_idx];
       expert_outputs[expert_idx] =
-        nntrainer::Tensor(total_tokens, 1, 1, hidden_size,
+        nntrainer::Tensor(1, 1, assignments.size(), hidden_size,
                           output.getTensorType());
-      expert_outputs[expert_idx].setZero();
     }
 
 #ifdef DEBUG
@@ -472,13 +458,20 @@ void CachedSlimMoELayer::incremental_forwarding(
 #endif
 
     // Combine expert outputs
-    int init = 0;
+    nntrainer::TensorDim out_step_dim({1, 1, 1, hidden_size},
+                                      output.getTensorType());
     for (int expert_idx : target_idx_vector) {
-      if (!init) {
-        output.copyData(expert_outputs[expert_idx]);
-        ++init;
-      } else {
-        output.add_i(expert_outputs[expert_idx]);
+      const auto &assignments = expert_assignments[expert_idx];
+      for (size_t i = 0; i < assignments.size(); ++i) {
+        const unsigned token_idx = assignments[i].first;
+        const float weight = assignments[i].second;
+        nntrainer::Tensor token_output = output.getSharedDataTensor(
+          out_step_dim, token_idx * hidden_size, true);
+        nntrainer::Tensor target = expert_outputs[expert_idx]
+                                     .getSharedDataTensor(
+                                       out_step_dim, i * hidden_size, true);
+        target.multiply_i(weight);
+        token_output.add(target, token_output);
       }
     }
 
