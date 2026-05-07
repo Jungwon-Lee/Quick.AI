@@ -385,72 +385,67 @@ inline void GptOssMoELayer::compute_expert_forward_no_critical(
   if (num_tokens == 0)
     return;
 
-  // Create tensor dimensions for single token processing
-  nntrainer::TensorDim token_input_dim({1, 1, 1, hidden_size},
+  nntrainer::TensorDim token_input_dim({1, 1, num_tokens, hidden_size},
                                        input.getTensorType());
-  nntrainer::TensorDim intermediate_dim({1, 1, 1, intermediate_size},
+  nntrainer::TensorDim intermediate_dim({1, 1, num_tokens, intermediate_size},
                                         input.getTensorType());
-  nntrainer::TensorDim token_output_dim({1, 1, 1, hidden_size},
+  nntrainer::TensorDim token_output_dim({1, 1, num_tokens, hidden_size},
                                         input.getTensorType());
+  nntrainer::TensorDim out_step_dim({1, 1, 1, hidden_size},
+                                    input.getTensorType());
 
-  // Process each token individually to avoid memory copies
+  nntrainer::Tensor token_input(token_input_dim);
+  const unsigned first_token_idx = token_assignments[0].first;
+
+  if (num_tokens > 1) {
+#pragma omp parallel for schedule(static) if (num_tokens > 4)
+    for (size_t i = 0; i < num_tokens; ++i) {
+      const unsigned token_idx = token_assignments[i].first;
+      nntrainer::Tensor src_view = input.getSharedDataTensor(
+        {1, 1, 1, hidden_size}, token_idx * hidden_size, true);
+      nntrainer::Tensor dst_view = token_input.getSharedDataTensor(
+        {1, 1, 1, hidden_size}, i * hidden_size, true);
+      dst_view.copyData(src_view);
+    }
+  } else {
+    token_input = input.getSharedDataTensor(
+      token_input_dim, first_token_idx * hidden_size, true);
+  }
+
+  nntrainer::Tensor gate_out(intermediate_dim);
+  nntrainer::Tensor acti_out(intermediate_dim);
+  nntrainer::Tensor up_out(intermediate_dim);
+  nntrainer::Tensor token_expert_output(token_output_dim);
+
+  token_input.dot(gate_proj, gate_out);
+  gate_out.add(gate_bias, gate_out);
+
+  token_input.dot(up_proj, up_out);
+  up_out.add_i(up_bias);
+  up_out.add_i(1);
+
+#pragma omp parallel for schedule(static) if (num_tokens > 4)
+  for (size_t i = 0; i < num_tokens; ++i) {
+    const unsigned offset = acti_out.getIndex(0, 0, i, 0);
+    nntrainer::swiglu(acti_out.width(), acti_out.getData<float>() + offset,
+                      gate_out.getData<float>() + offset,
+                      up_out.getData<float>() + offset, alpha);
+  }
+
+  acti_out.dot(down_proj, token_expert_output);
+  token_expert_output.add_i(down_bias);
+
+#pragma omp parallel for schedule(static) if (num_tokens > 4)
   for (size_t i = 0; i < num_tokens; ++i) {
     const unsigned token_idx = token_assignments[i].first;
     const float weight = token_assignments[i].second;
-
-    // Create shared tensor for input token (no memory copy)
-    size_t token_offset = token_idx * hidden_size;
-    nntrainer::Tensor token_input =
-      input.getSharedDataTensor(token_input_dim, token_offset, true);
-
-    // Create intermediate tensors for this token
-    nntrainer::Tensor gate_out(intermediate_dim);
-    nntrainer::Tensor acti_out(intermediate_dim);
-    nntrainer::Tensor up_out(intermediate_dim);
-
-    // Gate projection using optimized dot operation
-    token_input.dot(gate_proj, gate_out);
-    gate_out.add(gate_bias, gate_out);
-    // gate_out.clamp(min=None, max=limit)
-
-    // Up projection using optimized dot operation
-    token_input.dot(up_proj, up_out);
-    up_out.add_i(up_bias);
-    // up_out.clamp(min=-limit, max=limit)
-
-    // Apply activation (silu)
-    // (up + 1) * (gate * torch.sigmoid(gate * alpha))
-    // swiglu : X = Z * (Y / 1 + exp(-alpha * Y))
-    // X := acti_out
-    // Y := gate_out
-    // Z := up_out + 1
-    up_out.add_i(1);
-#pragma omp parallel for collapse(3)
-    for (unsigned int b = 0; b < acti_out.batch(); ++b) {
-      for (unsigned int c = 0; c < acti_out.channel(); ++c) {
-        for (unsigned int h = 0; h < acti_out.height(); ++h) {
-          nntrainer::swiglu(
-            acti_out.width(),
-            acti_out.getData<float>() + acti_out.getIndex(b, c, h, 0),
-            gate_out.getData<float>() + gate_out.getIndex(b, c, h, 0),
-            up_out.getData<float>() + up_out.getIndex(b, c, h, 0), alpha);
-        }
-      }
-    }
-
-    // Down projection using optimized dot operation
-    nntrainer::Tensor token_expert_output(token_output_dim);
-    acti_out.dot(down_proj, token_expert_output);
-    token_expert_output.add_i(down_bias);
-
-    // Apply weight and accumulate to expert's output (no critical section
-    // needed)
-    token_expert_output.multiply_i(weight);
     size_t output_offset = token_idx * hidden_size;
     nntrainer::Tensor token_output =
-      expert_output.getSharedDataTensor(token_output_dim, output_offset, true);
-
-    token_output.add_i(token_expert_output);
+      expert_output.getSharedDataTensor(out_step_dim, output_offset, true);
+    nntrainer::Tensor target = token_expert_output.getSharedDataTensor(
+      out_step_dim, i * hidden_size, true);
+    target.multiply_i(weight);
+    token_output.add(target, token_output);
   }
 }
 

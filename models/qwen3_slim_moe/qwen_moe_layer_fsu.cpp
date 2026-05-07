@@ -326,53 +326,55 @@ inline void SlimMoELayer::compute_expert_forward_no_critical(
   if (num_tokens == 0)
     return;
 
-  // Create tensor dimensions for single token processing
-  nntrainer::TensorDim token_input_dim({1, 1, 1, hidden_size},
+  nntrainer::TensorDim token_input_dim({1, 1, num_tokens, hidden_size},
                                        input.getTensorType());
-  nntrainer::TensorDim intermediate_dim({1, 1, 1, intermediate_size},
+  nntrainer::TensorDim intermediate_dim({1, 1, num_tokens, intermediate_size},
                                         input.getTensorType());
-  nntrainer::TensorDim token_output_dim({1, 1, 1, hidden_size},
+  nntrainer::TensorDim token_output_dim({1, 1, num_tokens, hidden_size},
                                         input.getTensorType());
+  nntrainer::TensorDim out_step_dim({1, 1, 1, hidden_size},
+                                    input.getTensorType());
 
-  // Process each token individually to avoid memory copies
+  nntrainer::Tensor token_input(token_input_dim);
+  const unsigned first_token_idx = token_assignments[0].first;
+
+  if (num_tokens > 1) {
+#pragma omp parallel for schedule(static) if (num_tokens > 4)
+    for (size_t i = 0; i < num_tokens; ++i) {
+      const unsigned token_idx = token_assignments[i].first;
+      nntrainer::Tensor src_view = input.getSharedDataTensor(
+        {1, 1, 1, hidden_size}, token_idx * hidden_size, true);
+      nntrainer::Tensor dst_view = token_input.getSharedDataTensor(
+        {1, 1, 1, hidden_size}, i * hidden_size, true);
+      dst_view.copyData(src_view);
+    }
+  } else {
+    token_input = input.getSharedDataTensor(
+      token_input_dim, first_token_idx * hidden_size, true);
+  }
+
+  nntrainer::Tensor gate_out(intermediate_dim);
+  nntrainer::Tensor acti_out(intermediate_dim);
+  nntrainer::Tensor up_out(intermediate_dim);
+  nntrainer::Tensor token_expert_output(token_output_dim);
+
+  token_input.dot(gate_proj, gate_out);
+  acti_func.run_fn(gate_out, acti_out);
+  token_input.dot(up_proj, up_out);
+  acti_out.multiply_i(up_out);
+  acti_out.dot(down_proj, token_expert_output);
+
+#pragma omp parallel for schedule(static) if (num_tokens > 4)
   for (size_t i = 0; i < num_tokens; ++i) {
     const unsigned token_idx = token_assignments[i].first;
     const float weight = token_assignments[i].second;
-
-    // Create shared tensor for input token (no memory copy)
-    size_t token_offset = token_idx * hidden_size;
-    nntrainer::Tensor token_input =
-      input.getSharedDataTensor(token_input_dim, token_offset, true);
-
-    // Create intermediate tensors for this token
-    nntrainer::Tensor gate_out(intermediate_dim);
-    nntrainer::Tensor acti_out(intermediate_dim);
-    nntrainer::Tensor up_out(intermediate_dim);
-
-    // Gate projection using optimized dot operation
-    token_input.dot(gate_proj, gate_out);
-
-    // Apply activation (silu)
-    acti_func.run_fn(gate_out, acti_out);
-
-    // Up projection using optimized dot operation
-    token_input.dot(up_proj, up_out);
-
-    // Element-wise multiply: silu(gate_out) * up_out
-    acti_out.multiply_i(up_out);
-
-    // Down projection using optimized dot operation
-    nntrainer::Tensor token_expert_output(token_output_dim);
-    acti_out.dot(down_proj, token_expert_output);
-
-    // Apply weight and accumulate to expert's output (no critical section
-    // needed)
-    token_expert_output.multiply_i(weight);
     size_t output_offset = token_idx * hidden_size;
     nntrainer::Tensor token_output =
-      expert_output.getSharedDataTensor(token_output_dim, output_offset, true);
-
-    token_output.add_i(token_expert_output);
+      expert_output.getSharedDataTensor(out_step_dim, output_offset, true);
+    nntrainer::Tensor target = token_expert_output.getSharedDataTensor(
+      out_step_dim, i * hidden_size, true);
+    target.multiply_i(weight);
+    token_output.add(target, token_output);
   }
 }
 
