@@ -25,6 +25,9 @@
 #include <common_properties.h>
 #include <layer_impl.h>
 #include <list>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
 
 namespace quick_dot_ai {
 
@@ -130,7 +133,7 @@ private:
   std::list<int> loaded_expert_deque;
   std::unordered_map<int, std::list<int>::iterator> iteration_map;
   std::unordered_map<int, double> expert_predict_scores;
-  std::vector<bool> need_load;
+  std::vector<unsigned char> need_load;
   std::mutex cache_mutex;
 
   unsigned int gate_idx;

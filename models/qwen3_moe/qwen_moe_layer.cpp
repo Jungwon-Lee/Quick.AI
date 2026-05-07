@@ -464,23 +464,30 @@ void MoELayer::incremental_forwarding(nntrainer::RunLayerContext &context,
       }
     }
 
-    // Parallel processing for multiple tokens with many active experts
-    std::vector<nntrainer::Tensor> expert_outputs(num_experts);
+    const bool is_prefill = (to - from) > 1;
+    std::vector<int> target_idx_vector;
     for (int expert_idx = 0; expert_idx < static_cast<int>(num_experts);
          ++expert_idx) {
-      if (!expert_assignments[expert_idx].empty()) {
-        expert_outputs[expert_idx] = nntrainer::Tensor(
-          total_tokens, 1, 1, hidden_size, output.getTensorType());
-        expert_outputs[expert_idx].setZero();
-      }
+      if (!expert_assignments[expert_idx].empty())
+        target_idx_vector.push_back(expert_idx);
     }
 
-#pragma omp parallel for schedule(dynamic)
-    for (int expert_idx = 0; expert_idx < static_cast<int>(num_experts);
-         ++expert_idx) {
+    std::vector<nntrainer::Tensor> expert_outputs(num_experts);
+#pragma omp parallel for schedule(static) if (target_idx_vector.size() > 4)
+    for (int target_idx = 0;
+         target_idx < static_cast<int>(target_idx_vector.size());
+         ++target_idx) {
+      const int expert_idx = target_idx_vector[target_idx];
+      expert_outputs[expert_idx] =
+        nntrainer::Tensor(total_tokens, 1, 1, hidden_size,
+                          output.getTensorType());
+      expert_outputs[expert_idx].setZero();
+    }
+
+#pragma omp parallel for schedule(dynamic)                                      \
+  if (is_prefill && target_idx_vector.size() > 1)
+    for (int expert_idx : target_idx_vector) {
       const auto &assignments = expert_assignments[expert_idx];
-      if (assignments.empty())
-        continue;
 
       compute_expert_forward_no_critical(
         input, expert_outputs[expert_idx], assignments,
@@ -490,11 +497,8 @@ void MoELayer::incremental_forwarding(nntrainer::RunLayerContext &context,
     }
 
     // Combine expert outputs
-    for (int expert_idx = 0; expert_idx < static_cast<int>(num_experts);
-         ++expert_idx) {
-      if (!expert_assignments[expert_idx].empty()) {
+    for (int expert_idx : target_idx_vector) {
         output.add_i(expert_outputs[expert_idx]);
-      }
     }
 
     // reshape output: [B*S,1,1,H] -> [B,1,S,H]

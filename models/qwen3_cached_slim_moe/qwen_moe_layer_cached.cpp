@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <deque>
 #include <node_exporter.h>
 #include <omp.h>
 #include <qwen_moe_layer_cached.h>
@@ -191,8 +192,6 @@ inline void CachedSlimMoELayer::compute_expert_forward(
                                         input.getTensorType());
   nntrainer::TensorDim out_step_dim({1, 1, 1, hidden_size},
                                     input.getTensorType());
-  nntrainer::TensorDim step_dim({1, 1, 1, intermediate_size},
-                                input.getTensorType());
   // Create intermediate tensors for this token
   nntrainer::Tensor gate_out(intermediate_dim);
   nntrainer::Tensor acti_out(intermediate_dim);
@@ -312,17 +311,17 @@ void CachedSlimMoELayer::incremental_forwarding(
     router_logits.apply(nntrainer::ActiFunc::softmax<float>, router_logits);
 
     // get extra topK
-    auto extra_topk_result = router_logits.topK(topk + 5);
-    auto extra_topk_values = std::get<0>(extra_topk_result);
+    const unsigned int cache_lookahead_topk = topk + 5;
+    auto extra_topk_result = router_logits.topK(cache_lookahead_topk);
     auto extra_topk_indices = std::get<1>(extra_topk_result);
     std::deque<int> extra_top_k = {};
-    extra_topk_values.divide_i(extra_topk_values.sum(3));
     const uint32_t *extra_indices_data = extra_topk_indices.getData<uint32_t>();
 
     // get extra topk
     for (int i = static_cast<int>(total_tokens) - 1; i >= 0; --i) {
-      for (int k = 0; k < static_cast<int>(topk + 5); ++k) {
-        unsigned expert_idx = extra_indices_data[i * topk + k];
+      for (int k = 0; k < static_cast<int>(cache_lookahead_topk); ++k) {
+        unsigned expert_idx =
+          extra_indices_data[i * cache_lookahead_topk + k];
         extra_top_k.push_back(expert_idx);
       }
     }
@@ -346,18 +345,8 @@ void CachedSlimMoELayer::incremental_forwarding(
       }
     }
 
-    // Parallel processing for multiple tokens with many active experts
-    std::vector<nntrainer::Tensor> expert_outputs(num_experts);
-#pragma omp parallel for schedule(static)
-    for (int expert_idx = 0; expert_idx < static_cast<int>(num_experts);
-         ++expert_idx) {
-      if (!expert_assignments[expert_idx].empty()) {
-        expert_outputs[expert_idx] = nntrainer::Tensor(
-          total_tokens, 1, 1, hidden_size, output.getTensorType());
-      }
-    }
+    const bool is_prefill = (to - from) > 1;
     std::vector<int> target_idx_vector;
-
     for (int expert_idx = 0; expert_idx < static_cast<int>(num_experts);
          ++expert_idx) {
       const auto &assignments = expert_assignments[expert_idx];
@@ -367,17 +356,29 @@ void CachedSlimMoELayer::incremental_forwarding(
       target_idx_vector.push_back(expert_idx);
     }
 
-    int hit_count = 0;
-    int miss_count = 0;
+    std::vector<nntrainer::Tensor> expert_outputs(num_experts);
+#pragma omp parallel for schedule(static) if (target_idx_vector.size() > 4)
+    for (int target_idx = 0;
+         target_idx < static_cast<int>(target_idx_vector.size());
+         ++target_idx) {
+      const int expert_idx = target_idx_vector[target_idx];
+      expert_outputs[expert_idx] =
+        nntrainer::Tensor(total_tokens, 1, 1, hidden_size,
+                          output.getTensorType());
+      expert_outputs[expert_idx].setZero();
+    }
 
 #ifdef DEBUG
+    int hit_count = 0;
+    int miss_count = 0;
     auto t1_miss = high_resolution_clock::now();
     auto t2_miss = t1_miss;
     auto t1_hit = high_resolution_clock::now();
     auto t2_hit = t1_hit;
 #endif
 
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(dynamic)                                      \
+  if (is_prefill && target_idx_vector.size() > 1)
     for (int expert_idx : target_idx_vector) {
       const auto &assignments = expert_assignments[expert_idx];
       if (need_load[expert_idx]) {
@@ -395,7 +396,9 @@ void CachedSlimMoELayer::incremental_forwarding(
           loaded_expert_deque.push_back(expert_idx);
           iteration_map[expert_idx] = --loaded_expert_deque.end();
           need_load[expert_idx] = false;
+#ifdef DEBUG
           miss_count += 1;
+#endif
         }
 
         compute_expert_forward(
@@ -413,7 +416,9 @@ void CachedSlimMoELayer::incremental_forwarding(
 #endif
         {
           std::lock_guard<std::mutex> lock(cache_mutex);
+#ifdef DEBUG
           hit_count += 1;
+#endif
         }
 
         compute_expert_forward(
@@ -428,11 +433,15 @@ void CachedSlimMoELayer::incremental_forwarding(
       }
     }
 
-    for (int i = extra_top_k.size() - 1; i >= 0; i--) {
-      if (iteration_map.find(extra_top_k[i]) != iteration_map.end()) {
-        loaded_expert_deque.erase(iteration_map[extra_top_k[i]]);
-        loaded_expert_deque.push_back(extra_top_k[i]);
-        iteration_map[extra_top_k[i]] = --loaded_expert_deque.end();
+    {
+      std::lock_guard<std::mutex> lock(cache_mutex);
+      for (int i = extra_top_k.size() - 1; i >= 0; i--) {
+        auto iter = iteration_map.find(extra_top_k[i]);
+        if (iter != iteration_map.end()) {
+          loaded_expert_deque.erase(iter->second);
+          loaded_expert_deque.push_back(extra_top_k[i]);
+          iteration_map[extra_top_k[i]] = --loaded_expert_deque.end();
+        }
       }
     }
 
@@ -440,18 +449,19 @@ void CachedSlimMoELayer::incremental_forwarding(
     auto t1_evict = high_resolution_clock::now();
 #endif
 
-// Evict experts
-#pragma omp parallel
-    while (loaded_expert_deque.size() > 32) {
-      int target_idx;
-      {
-        std::lock_guard<std::mutex> lock(cache_mutex);
-        target_idx = loaded_expert_deque.front();
+    std::vector<int> evict_targets;
+    {
+      std::lock_guard<std::mutex> lock(cache_mutex);
+      while (loaded_expert_deque.size() > 32) {
+        int target_idx = loaded_expert_deque.front();
         loaded_expert_deque.pop_front();
         iteration_map.erase(target_idx);
         need_load[target_idx] = true;
+        evict_targets.push_back(target_idx);
       }
+    }
 
+    for (int target_idx : evict_targets) {
       context.getWeight(expert_gate_proj_indices[target_idx]).deactivate();
       context.getWeight(expert_up_proj_indices[target_idx]).deactivate();
       context.getWeight(expert_down_proj_indices[target_idx]).deactivate();
