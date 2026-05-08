@@ -46,6 +46,8 @@ public:
 
   void copyBytes(size_t bytes, const std::string &name);
   void copyFp32Tensor(size_t elements, const std::string &name);
+  void writeMatrix(size_t rows, size_t cols, DType dtype,
+                   const std::string &name);
   void writeTransposedMatrix(size_t height, size_t width, DType dtype,
                              const std::string &name);
   void quantizeFcWithBias(size_t height, size_t width, DType dtype,
@@ -62,8 +64,8 @@ private:
                        const std::string &name);
   std::vector<float> transposeMatrix(const std::vector<float> &source,
                                      size_t height, size_t width) const;
-  void writeMatrix(const std::vector<float> &source, size_t rows, size_t cols,
-                   DType dtype, const std::string &name);
+  void writeMatrixData(const std::vector<float> &source, size_t rows,
+                       size_t cols, DType dtype, const std::string &name);
   void writeQuantizedMatrix(const std::vector<float> &source, size_t rows,
                             size_t cols, DType dtype, const std::string &name,
                             bool repack = true);

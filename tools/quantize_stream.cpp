@@ -259,8 +259,8 @@ int run(int argc, char **argv) {
     writer.quantizeTiedLmHead(embedding_cache, plan.vocab, plan.hidden,
                               quant_plan.lmhead_dtype, "output_of_causallm");
   } else {
-    writer.writeTransposedMatrix(plan.hidden, plan.vocab,
-                                 quant_plan.lmhead_dtype, "output_of_causallm");
+    writer.writeMatrix(plan.hidden, plan.vocab, quant_plan.lmhead_dtype,
+                       "output_of_causallm");
   }
   std::cout << "  output_of_causallm -> " << dtypeName(quant_plan.lmhead_dtype)
             << "\n";
@@ -410,9 +410,15 @@ TensorWriter::transposeMatrix(const std::vector<float> &source, size_t height,
   return transposed;
 }
 
-void TensorWriter::writeMatrix(const std::vector<float> &source, size_t rows,
-                               size_t cols, DType dtype,
+void TensorWriter::writeMatrix(size_t rows, size_t cols, DType dtype,
                                const std::string &name) {
+  const std::vector<float> source = readFp32Tensor(rows * cols, name);
+  writeMatrixData(source, rows, cols, dtype, name);
+}
+
+void TensorWriter::writeMatrixData(const std::vector<float> &source,
+                                   size_t rows, size_t cols, DType dtype,
+                                   const std::string &name) {
   if (dtype == DType::FP32) {
     writeFp32Tensor(source, name);
     return;
@@ -480,7 +486,7 @@ void TensorWriter::writeTransposedMatrix(size_t height, size_t width,
   const size_t elements = height * width;
   const std::vector<float> source = readFp32Tensor(elements, name);
   const std::vector<float> transposed = transposeMatrix(source, height, width);
-  writeMatrix(transposed, width, height, dtype, name);
+  writeMatrixData(transposed, width, height, dtype, name);
 }
 
 void TensorWriter::quantizeFcWithBias(size_t height, size_t width, DType dtype,
@@ -504,7 +510,7 @@ void TensorWriter::quantizeEmbedding(size_t rows, size_t cols, DType dtype,
     throw std::invalid_argument(
       "Q4_K embedding is not supported by EmbeddingLayer save/runtime");
   case DType::FP32:
-    writeMatrix(source, rows, cols, dtype, name);
+    writeMatrixData(source, rows, cols, dtype, name);
     break;
   }
 
@@ -520,7 +526,7 @@ void TensorWriter::quantizeTiedLmHead(const std::vector<float> &embedding,
     throw std::invalid_argument("Unexpected embedding cache size for " + name);
   }
 
-  writeMatrix(embedding, vocab, hidden, dtype, name);
+  writeMatrixData(embedding, vocab, hidden, dtype, name);
 }
 
 void RecipeRegistry::add(ModelRecipe recipe) {
