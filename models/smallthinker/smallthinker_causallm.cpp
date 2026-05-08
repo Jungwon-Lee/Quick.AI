@@ -23,6 +23,7 @@
 #include <model.h>
 
 #include <algorithm>
+#include <climits>
 #include <iostream>
 #include <smallthinker_causallm.h>
 #include <smallthinker_moe_layer.h>
@@ -30,10 +31,34 @@
 
 namespace quick_dot_ai {
 
+namespace {
+
+std::vector<bool> parseLayerLayout(const json &cfg, const char *key,
+                                   int num_layers, bool default_value) {
+  std::vector<bool> layout(num_layers, default_value);
+  if (!cfg.contains(key) || !cfg[key].is_array())
+    return layout;
+
+  const int limit = std::min<int>(num_layers, cfg[key].size());
+  for (int i = 0; i < limit; ++i) {
+    const json &value = cfg[key][i];
+    if (value.is_boolean())
+      layout[i] = value.get<bool>();
+    else if (value.is_number_integer())
+      layout[i] = value.get<int>() != 0;
+  }
+  return layout;
+}
+
+} // namespace
+
 json &SmallThinkerCausalLM::normalizeConfig(json &cfg) {
   if (!cfg.contains("intermediate_size") &&
       cfg.contains("moe_ffn_hidden_size")) {
     cfg["intermediate_size"] = cfg["moe_ffn_hidden_size"];
+  }
+  if (!cfg.contains("sliding_window") && cfg.contains("sliding_window_size")) {
+    cfg["sliding_window"] = cfg["sliding_window_size"];
   }
   if (!cfg.contains("tie_word_embeddings") ||
       !cfg["tie_word_embeddings"].is_boolean()) {
@@ -73,6 +98,10 @@ void SmallThinkerCausalLM::setupParameters(json &cfg, json &generation_cfg,
     throw std::runtime_error(
       "SmallThinker: required MoE config keys are missing");
   }
+
+  rope_layout_ = parseLayerLayout(cfg, "rope_layout", NUM_LAYERS, true);
+  sliding_window_layout_ =
+    parseLayerLayout(cfg, "sliding_window_layout", NUM_LAYERS, false);
 }
 
 void SmallThinkerCausalLM::constructModel() {
@@ -176,6 +205,68 @@ SmallThinkerCausalLM::createTransformerDecoderBlock(const int layer_id,
      withKey("input_layers", "layer" + std::to_string(layer_id) +
                                "_decoder_add,layer" + std::to_string(layer_id) +
                                "_ffn_down")}));
+
+  return layers;
+}
+
+std::vector<LayerHandle>
+SmallThinkerCausalLM::createAttention(const int layer_id, int seq_len,
+                                      int n_heads, int head_dim,
+                                      std::string query_name,
+                                      std::string key_name,
+                                      std::string value_name) {
+
+  std::vector<LayerHandle> layers;
+
+  auto Q = "layer" + std::to_string(layer_id) + "_wq";
+  auto K = "layer" + std::to_string(layer_id) + "_wk";
+  auto V = "layer" + std::to_string(layer_id) + "_wv";
+  auto A = "layer" + std::to_string(layer_id) + "_attention";
+  auto O = "layer" + std::to_string(layer_id) + "_attention_out";
+
+  layers.push_back(createLayer(
+    "fully_connected",
+    {withKey("name", Q), withKey("unit", head_dim * n_heads),
+     withKey("disable_bias", "true"), withKey("input_layers", query_name),
+     withKey("weight_initializer", "ones")}));
+
+  layers.push_back(createLayer(
+    "fully_connected",
+    {withKey("name", K), withKey("unit", head_dim * n_heads / GQA_SIZE),
+     withKey("disable_bias", "true"), withKey("input_layers", key_name),
+     withKey("weight_initializer", "ones")}));
+
+  layers.push_back(createLayer(
+    "fully_connected",
+    {withKey("name", V), withKey("unit", head_dim * n_heads / GQA_SIZE),
+     withKey("disable_bias", "true"), withKey("input_layers", value_name),
+     withKey("weight_initializer", "ones")}));
+
+  const bool use_sliding_window =
+    layer_id < static_cast<int>(sliding_window_layout_.size())
+      ? sliding_window_layout_[layer_id]
+      : false;
+  const bool use_rope = layer_id < static_cast<int>(rope_layout_.size())
+                          ? rope_layout_[layer_id]
+                          : true;
+
+  std::vector<std::string> a_params = {
+    withKey("name", A),
+    withKey("num_heads", n_heads),
+    withKey("num_heads_kv", n_heads / GQA_SIZE),
+    withKey("max_timestep", std::to_string(INIT_SEQ_LEN + NUM_TO_GENERATE)),
+    withKey("sliding_window", use_sliding_window ? SLIDING_WINDOW : UINT_MAX),
+    withKey("rope_theta", ROPE_THETA),
+    withKey("max_new_tokens", std::to_string(NUM_TO_GENERATE)),
+    withKey("is_causal", IS_CAUSAL ? "true" : "false"),
+    withKey("use_rope", use_rope ? "true" : "false"),
+    withKey("input_layers", {Q, K, V})};
+  layers.push_back(createLayer("mha_core", a_params));
+
+  layers.push_back(createLayer(
+    "fully_connected",
+    {withKey("name", O), withKey("unit", DIM), withKey("disable_bias", "true"),
+     withKey("input_layers", A), withKey("weight_initializer", "ones")}));
 
   return layers;
 }

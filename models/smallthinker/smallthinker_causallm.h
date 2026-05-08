@@ -37,6 +37,12 @@ protected:
   createTransformerDecoderBlock(const int layer_id,
                                 std::string input_name) override;
 
+  std::vector<LayerHandle> createAttention(const int layer_id, int seq_len,
+                                           int n_heads, int head_dim,
+                                           std::string query_name,
+                                           std::string key_name,
+                                           std::string value_name) override;
+
   std::vector<LayerHandle> createMlp(const int layer_id, int dim,
                                      int hidden_dim,
                                      std::string input_name) override;
@@ -55,6 +61,8 @@ private:
   unsigned int NUM_EXPERTS_PER_TOK;
   bool ROUTER_APPLY_SOFTMAX;
   std::string router_input_name_;
+  std::vector<bool> rope_layout_;
+  std::vector<bool> sliding_window_layout_;
 };
 
 } // namespace quick_dot_ai

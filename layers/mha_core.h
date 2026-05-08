@@ -137,6 +137,16 @@ public:
 };
 
 /**
+ * @brief UseRope property
+ */
+class UseRope : public nntrainer::Property<bool> {
+public:
+  UseRope(bool value = true) { set(value); };
+  static constexpr const char *key = "use_rope"; /**< unique key to access */
+  using prop_tag = nntrainer::bool_prop_tag;     /**< property type */
+};
+
+/**
  * @brief RopeScalingType
  * - default
  * - yarn
@@ -308,7 +318,7 @@ private:
     props::SlidingWindow, props::MaxNewTokens, props::RopeTheta,
     props::MaxPositionEmbeddings, props::UseSink, props::RopeScalingType,
     props::RopeScalingFactor, props::RopeScalingMaxPositionEmbeddings,
-    props::AttnLogitSoftcapping, props::IsCausal>
+    props::AttnLogitSoftcapping, props::IsCausal, props::UseRope>
     mha_core_props; /**< mha_core layer properties */
 
   /** softmax activation operation */
@@ -325,6 +335,7 @@ private:
   float theta;
   size_t local_window_size;
   bool use_sink = false;
+  bool use_rope = true;
   float attn_logit_softcapping = 0.0f;
   bool is_causal;
 

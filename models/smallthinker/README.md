@@ -12,3 +12,9 @@ input for the MoE block.
 
 - `smallthinker_moe_layer.cpp`: SmallThinker-specific MoE layer with separate
   expert and router inputs.
+
+Supported model configs:
+
+- `SmallThinker-4BA0.6B-Instruct`: full RoPE attention layout.
+- `SmallThinker-21BA3B-Instruct`: hybrid NoPE/RoPE and sliding-window layout
+  from `rope_layout` and `sliding_window_layout`.

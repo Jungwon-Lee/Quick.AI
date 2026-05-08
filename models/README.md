@@ -19,7 +19,7 @@ Here is the list of supported models. We provide **Standard** implementations an
 | `qwen3_cached_slim_moe_causallm` | **30B-A3B** | **Variant** | **Cached Slim** | MoE-specific FSU implementation with **expert caching**. |
 | `gptoss_causallm` | **20B-A3.6B, 120B-5.1B** | Standard | - | Basic implementation of the GPT-OSS model. |
 | `gptoss_cached_slim_causallm` | **20B-A3.6B, 120B-5.1B** | **Variant** | **Cached Slim** | GPT-OSS MoE implementation with **expert caching**. |
-| `smallthinker_causallm` | **4B-A0.6B** | Standard | MoE, ReGLU | SmallThinker implementation with top-k primary routing. |
+| `smallthinker_causallm` | **4B-A0.6B, 21B-A3B** | Standard | MoE, ReGLU, NoPE/RoPE layout | SmallThinker implementation with top-k primary routing and per-layer attention layout. |
 
 > *Note: **Standard** refers to the basic implementation, while **Variant** refers to models optimized for your device using FSU schemes.*
 

@@ -128,6 +128,7 @@ Native **C and C++ APIs** plus a clean Android JNI build. Same source tree build
 | **Qwen 3** | 0.6B · 1.7B · 4B · 8B · 14B · 32B | [HF: Qwen3-4B](https://huggingface.co/Qwen/Qwen3-4B) |
 | **Qwen 3-MoE** | 30B-A3B | [HF: Qwen3-30B-A3B](https://huggingface.co/Qwen/Qwen3-30B-A3B-Instruct-2507) · **FSU** |
 | **GPT-OSS** | MoE 20B · 120B | [HF: gpt-oss-20b](https://huggingface.co/openai/gpt-oss-20b) · **FSU** |
+| **SmallThinker** | 4B-A0.6B · 21B-A3B | [HF: SmallThinker-21BA3B-Instruct](https://huggingface.co/Tiiny/SmallThinker-21BA3B-Instruct) · CLI |
 | **Gemma 3** | all causal variants | + sentence-embedding head |
 
 > **Bring your own**: subclass the causal-LM template under `models/<your_family>/` and the [factory](factory.h) wires it in. See the [model author guide](models/README.md).
