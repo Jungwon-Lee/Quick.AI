@@ -44,8 +44,7 @@
 #include "json.hpp"
 #include "performance_metrics.h"
 #include <fstream>
-#include <tokenizers_c.h>
-#include <tokenizers_cpp.h>
+#include <tokenizers/tokenizers_cpp.h>
 
 namespace quick_dot_ai {
 

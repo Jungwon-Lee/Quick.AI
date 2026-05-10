@@ -60,6 +60,7 @@ LOCAL_LDLIBS := -llog -landroid -fopenmp -static-openmp -DENABLE_FP16=1 -DUSE__F
 LOCAL_SRC_FILES := \
     ../models/causal_lm.cpp \
     ../models/transformer.cpp \
+    ../models/tokenizer_loader.cpp \
     ../models/sentence_transformer.cpp \
     ../models/qwen2/qwen2_causallm.cpp \
     ../models/qwen2/qwen2_embedding.cpp \
@@ -70,7 +71,8 @@ LOCAL_SRC_FILES := \
     ../models/qwen3_cached_slim_moe/qwen3_cached_slim_moe_causallm.cpp \
     ../models/gpt_oss/gptoss_causallm.cpp \
     ../models/gpt_oss_cached_slim/gptoss_cached_slim_causallm.cpp \
-    ../huggingface_tokenizer.cpp \
+    ../tokenizers/huggingface_tokenizer.cpp \
+    ../tokenizers/wordpiece_tokenizer.cpp \
     ../llm_util.cpp \
     ../layers/embedding_layer.cpp \
     ../layers/embedding_pooling_layer.cpp \

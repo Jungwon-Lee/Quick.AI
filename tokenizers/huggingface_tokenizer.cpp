@@ -4,8 +4,8 @@
  * \file huggingface_tokenizer.cc
  * \brief Huggingface tokenizer
  */
-#include <tokenizers_c.h>
-#include <tokenizers_cpp.h>
+#include <tokenizers/tokenizers_c.h>
+#include <tokenizers/tokenizers_cpp.h>
 
 #include <cassert>
 

@@ -10,14 +10,17 @@
  * @brief  This file defines Transformer's basic actions
  */
 
-#include <fstream>
+#include <algorithm>
+#include <cctype>
+#include <iostream>
+#include <vector>
 
 #include <app_context.h>
 #include <engine.h>
 #include <model.h>
 
 #include <llm_util.hpp>
-#include <tokenizers_cpp.h>
+#include <tokenizer_loader.h>
 #include <transformer.h>
 
 #include <embedding_layer.h>
@@ -27,21 +30,6 @@
 #include <tie_word_embedding.h>
 
 namespace quick_dot_ai {
-
-std::string LoadBytesFromFile(const std::string &path) {
-  std::ifstream file(path, std::ios::binary | std::ios::ate);
-  if (!file.is_open()) {
-    throw std::runtime_error("Failed to open file: " + path);
-  }
-  std::streamsize size = file.tellg();
-  file.seekg(0, std::ios::beg);
-
-  std::string buffer(size, ' ');
-  if (!file.read(&buffer[0], size)) {
-    throw std::runtime_error("Failed to read file: " + path);
-  }
-  return buffer;
-}
 
 ModelType strToModelType(std::string model_type) {
 
@@ -83,8 +71,7 @@ Transformer::Transformer(json &cfg, json &generation_cfg, json &nntr_cfg,
   setupParameters(cfg, generation_cfg, nntr_cfg);
 
   // prep tokenizer
-  tokenizer = tokenizers::Tokenizer::FromBlobJSON(
-    LoadBytesFromFile(nntr_cfg["tokenizer_file"]));
+  tokenizer = LoadTokenizer(nntr_cfg);
 };
 
 void Transformer::setupParameters(json &cfg, json &generation_cfg,
@@ -435,7 +422,8 @@ void Transformer::registerCustomLayers() {
     static_cast<nntrainer::AppContext *>(ct_engine.getRegisteredContext("cpu"));
 
   try {
-    app_context->registerFactory(nntrainer::createLayer<quick_dot_ai::SwiGLULayer>);
+    app_context->registerFactory(
+      nntrainer::createLayer<quick_dot_ai::SwiGLULayer>);
     app_context->registerFactory(
       nntrainer::createLayer<quick_dot_ai::RMSNormLayer>);
     app_context->registerFactory(
