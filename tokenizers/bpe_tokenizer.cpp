@@ -3,6 +3,7 @@
  * \file bpe_tokenizer.cpp
  * \brief Compact native BPE tokenizer
  */
+#include <tokenizers/tokenizer_cache_util.h>
 #include <tokenizers/tokenizers_cpp.h>
 
 #include "json.hpp"
@@ -28,8 +29,14 @@ using json = nlohmann::json;
 
 constexpr uint32_t kInvalidId = std::numeric_limits<uint32_t>::max();
 constexpr uint32_t kInvalidRank = std::numeric_limits<uint32_t>::max();
-constexpr char kCacheMagic[] = "QAIBPE2";
-constexpr size_t kCacheMagicSize = 8;
+constexpr char kCacheName[] = "BPE";
+constexpr cache_util::CacheKind kCacheKind = cache_util::CacheKind::BPE;
+
+using cache_util::AppendHeader;
+using cache_util::AppendU32;
+using cache_util::ReadBytes;
+using cache_util::ReadHeader;
+using cache_util::ReadU32;
 
 enum class BPEVariant : uint32_t {
   ByteLevel = 1,
@@ -48,36 +55,6 @@ struct MergeEntry {
   uint32_t rank = 0;
   uint32_t merged = 0;
 };
-
-void AppendU32(std::string &out, uint32_t value) {
-  out.push_back(static_cast<char>(value & 0xff));
-  out.push_back(static_cast<char>((value >> 8) & 0xff));
-  out.push_back(static_cast<char>((value >> 16) & 0xff));
-  out.push_back(static_cast<char>((value >> 24) & 0xff));
-}
-
-uint32_t ReadU32(const std::string &blob, size_t &offset) {
-  if (offset + 4 > blob.size()) {
-    throw std::runtime_error("Invalid BPE cache: truncated u32");
-  }
-
-  const unsigned char *p =
-    reinterpret_cast<const unsigned char *>(blob.data() + offset);
-  offset += 4;
-  return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) |
-         (static_cast<uint32_t>(p[2]) << 16) |
-         (static_cast<uint32_t>(p[3]) << 24);
-}
-
-std::string ReadBytes(const std::string &blob, size_t &offset, size_t len) {
-  if (offset + len > blob.size()) {
-    throw std::runtime_error("Invalid BPE cache: truncated bytes");
-  }
-
-  std::string out(blob.data() + offset, len);
-  offset += len;
-  return out;
-}
 
 uint64_t PairKey(uint32_t left, uint32_t right) {
   return (static_cast<uint64_t>(left) << 32) | right;
@@ -411,8 +388,7 @@ public:
 
   std::string SerializeToCache() const final {
     std::string out;
-    out.append(kCacheMagic, kCacheMagicSize);
-    AppendU32(out, 1);
+    AppendHeader(out, kCacheKind);
     AppendU32(out, static_cast<uint32_t>(variant_));
     AppendU32(out, digit_group_size_);
     AppendU32(out, unk_id_);
@@ -679,54 +655,45 @@ private:
   }
 
   void LoadCache(const std::string &blob) {
-    if (blob.size() < kCacheMagicSize ||
-        std::memcmp(blob.data(), kCacheMagic, kCacheMagicSize) != 0) {
-      throw std::runtime_error("Invalid BPE cache: bad magic");
-    }
-
-    size_t offset = kCacheMagicSize;
-    const uint32_t version = ReadU32(blob, offset);
-    if (version != 1) {
-      throw std::runtime_error("Invalid BPE cache: unsupported version");
-    }
-    variant_ = static_cast<BPEVariant>(ReadU32(blob, offset));
-    digit_group_size_ = ReadU32(blob, offset);
-    unk_id_ = ReadU32(blob, offset);
-    const uint32_t vocab_size = ReadU32(blob, offset);
-    const uint32_t token_bytes_size = ReadU32(blob, offset);
-    const uint32_t token_entry_count = ReadU32(blob, offset);
-    const uint32_t merge_count = ReadU32(blob, offset);
-    const uint32_t special_count = ReadU32(blob, offset);
-    const uint32_t prefix_count = ReadU32(blob, offset);
+    size_t offset = ReadHeader(blob, kCacheKind, kCacheName);
+    variant_ = static_cast<BPEVariant>(ReadU32(blob, offset, kCacheName));
+    digit_group_size_ = ReadU32(blob, offset, kCacheName);
+    unk_id_ = ReadU32(blob, offset, kCacheName);
+    const uint32_t vocab_size = ReadU32(blob, offset, kCacheName);
+    const uint32_t token_bytes_size = ReadU32(blob, offset, kCacheName);
+    const uint32_t token_entry_count = ReadU32(blob, offset, kCacheName);
+    const uint32_t merge_count = ReadU32(blob, offset, kCacheName);
+    const uint32_t special_count = ReadU32(blob, offset, kCacheName);
+    const uint32_t prefix_count = ReadU32(blob, offset, kCacheName);
 
     token_offsets_.resize(static_cast<size_t>(vocab_size) + 1);
     for (uint32_t &value : token_offsets_) {
-      value = ReadU32(blob, offset);
+      value = ReadU32(blob, offset, kCacheName);
     }
-    token_bytes_ = ReadBytes(blob, offset, token_bytes_size);
+    token_bytes_ = ReadBytes(blob, offset, token_bytes_size, kCacheName);
 
     token_entries_.resize(token_entry_count);
     for (auto &entry : token_entries_) {
-      entry.offset = ReadU32(blob, offset);
-      entry.length = ReadU32(blob, offset);
-      entry.id = ReadU32(blob, offset);
+      entry.offset = ReadU32(blob, offset, kCacheName);
+      entry.length = ReadU32(blob, offset, kCacheName);
+      entry.id = ReadU32(blob, offset, kCacheName);
     }
 
     merges_.resize(merge_count);
     for (auto &merge : merges_) {
-      merge.left = ReadU32(blob, offset);
-      merge.right = ReadU32(blob, offset);
-      merge.rank = ReadU32(blob, offset);
-      merge.merged = ReadU32(blob, offset);
+      merge.left = ReadU32(blob, offset, kCacheName);
+      merge.right = ReadU32(blob, offset, kCacheName);
+      merge.rank = ReadU32(blob, offset, kCacheName);
+      merge.merged = ReadU32(blob, offset, kCacheName);
     }
 
     special_ids_.resize(special_count);
     for (uint32_t &id : special_ids_) {
-      id = ReadU32(blob, offset);
+      id = ReadU32(blob, offset, kCacheName);
     }
     prefix_ids_.resize(prefix_count);
     for (uint32_t &id : prefix_ids_) {
-      id = ReadU32(blob, offset);
+      id = ReadU32(blob, offset, kCacheName);
     }
 
     if (offset != blob.size()) {

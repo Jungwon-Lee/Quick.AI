@@ -3,12 +3,12 @@
  * \file wordpiece_tokenizer.cpp
  * \brief Compact WordPiece tokenizer
  */
+#include <tokenizers/tokenizer_cache_util.h>
 #include <tokenizers/tokenizers_cpp.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
-#include <cstring>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -19,36 +19,14 @@ namespace tokenizers {
 namespace {
 
 constexpr uint32_t kInvalidId = std::numeric_limits<uint32_t>::max();
+constexpr char kCacheName[] = "WordPiece";
+constexpr cache_util::CacheKind kCacheKind = cache_util::CacheKind::WordPiece;
 
-void AppendU32(std::string &out, uint32_t value) {
-  out.push_back(static_cast<char>(value & 0xff));
-  out.push_back(static_cast<char>((value >> 8) & 0xff));
-  out.push_back(static_cast<char>((value >> 16) & 0xff));
-  out.push_back(static_cast<char>((value >> 24) & 0xff));
-}
-
-uint32_t ReadU32(const std::string &blob, size_t &offset) {
-  if (offset + 4 > blob.size()) {
-    throw std::runtime_error("Invalid WordPiece cache: truncated u32");
-  }
-
-  const unsigned char *p =
-    reinterpret_cast<const unsigned char *>(blob.data() + offset);
-  offset += 4;
-  return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) |
-         (static_cast<uint32_t>(p[2]) << 16) |
-         (static_cast<uint32_t>(p[3]) << 24);
-}
-
-std::string ReadBytes(const std::string &blob, size_t &offset, size_t len) {
-  if (offset + len > blob.size()) {
-    throw std::runtime_error("Invalid WordPiece cache: truncated bytes");
-  }
-
-  std::string out(blob.data() + offset, len);
-  offset += len;
-  return out;
-}
+using cache_util::AppendHeader;
+using cache_util::AppendU32;
+using cache_util::ReadBytes;
+using cache_util::ReadHeader;
+using cache_util::ReadU32;
 
 std::string ToLowerAscii(const std::string &text) {
   std::string out = text;
@@ -229,8 +207,7 @@ public:
 
   std::string SerializeToCache() const final {
     std::string out;
-    out.append("QAIWP01", 8);
-    AppendU32(out, 1);
+    AppendHeader(out, kCacheKind);
     AppendU32(out, do_lower_case_ ? 1 : 0);
     AppendU32(out, static_cast<uint32_t>(
                      token_offsets_.empty() ? 0 : token_offsets_.size() - 1));
@@ -410,47 +387,40 @@ private:
   }
 
   void LoadCache(const std::string &blob) {
-    if (blob.size() < 8 || std::memcmp(blob.data(), "QAIWP01", 8) != 0) {
-      throw std::runtime_error("Invalid WordPiece cache: bad magic");
-    }
+    size_t offset = ReadHeader(blob, kCacheKind, kCacheName);
 
-    size_t offset = 8;
-    const uint32_t version = ReadU32(blob, offset);
-    if (version != 1) {
-      throw std::runtime_error("Invalid WordPiece cache: unsupported version");
-    }
-
-    const uint32_t flags = ReadU32(blob, offset);
+    const uint32_t flags = ReadU32(blob, offset, kCacheName);
     do_lower_case_ = (flags & 1) != 0;
-    const uint32_t vocab_size = ReadU32(blob, offset);
-    const uint32_t node_count = ReadU32(blob, offset);
-    const uint32_t edge_count = ReadU32(blob, offset);
-    const uint32_t token_bytes_size = ReadU32(blob, offset);
-    unk_id_ = ReadU32(blob, offset);
-    cls_id_ = ReadU32(blob, offset);
-    sep_id_ = ReadU32(blob, offset);
-    max_input_chars_per_word_ = ReadU32(blob, offset);
-    const uint32_t unk_len = ReadU32(blob, offset);
-    const uint32_t prefix_len = ReadU32(blob, offset);
-    const uint32_t cls_len = ReadU32(blob, offset);
-    const uint32_t sep_len = ReadU32(blob, offset);
+    const uint32_t vocab_size = ReadU32(blob, offset, kCacheName);
+    const uint32_t node_count = ReadU32(blob, offset, kCacheName);
+    const uint32_t edge_count = ReadU32(blob, offset, kCacheName);
+    const uint32_t token_bytes_size = ReadU32(blob, offset, kCacheName);
+    unk_id_ = ReadU32(blob, offset, kCacheName);
+    cls_id_ = ReadU32(blob, offset, kCacheName);
+    sep_id_ = ReadU32(blob, offset, kCacheName);
+    max_input_chars_per_word_ = ReadU32(blob, offset, kCacheName);
+    const uint32_t unk_len = ReadU32(blob, offset, kCacheName);
+    const uint32_t prefix_len = ReadU32(blob, offset, kCacheName);
+    const uint32_t cls_len = ReadU32(blob, offset, kCacheName);
+    const uint32_t sep_len = ReadU32(blob, offset, kCacheName);
 
-    unk_token_ = ReadBytes(blob, offset, unk_len);
-    continuing_subword_prefix_ = ReadBytes(blob, offset, prefix_len);
-    cls_token_ = ReadBytes(blob, offset, cls_len);
-    sep_token_ = ReadBytes(blob, offset, sep_len);
+    unk_token_ = ReadBytes(blob, offset, unk_len, kCacheName);
+    continuing_subword_prefix_ =
+      ReadBytes(blob, offset, prefix_len, kCacheName);
+    cls_token_ = ReadBytes(blob, offset, cls_len, kCacheName);
+    sep_token_ = ReadBytes(blob, offset, sep_len, kCacheName);
 
     token_offsets_.resize(static_cast<size_t>(vocab_size) + 1);
     for (uint32_t &value : token_offsets_) {
-      value = ReadU32(blob, offset);
+      value = ReadU32(blob, offset, kCacheName);
     }
-    token_bytes_ = ReadBytes(blob, offset, token_bytes_size);
+    token_bytes_ = ReadBytes(blob, offset, token_bytes_size, kCacheName);
 
     nodes_.resize(node_count);
     for (auto &node : nodes_) {
-      node.first_edge = ReadU32(blob, offset);
-      node.edge_count = ReadU32(blob, offset);
-      node.token_id = ReadU32(blob, offset);
+      node.first_edge = ReadU32(blob, offset, kCacheName);
+      node.edge_count = ReadU32(blob, offset, kCacheName);
+      node.token_id = ReadU32(blob, offset, kCacheName);
     }
 
     edges_.resize(edge_count);
@@ -459,7 +429,7 @@ private:
         throw std::runtime_error("Invalid WordPiece cache: truncated edge");
       }
       edge.byte = static_cast<unsigned char>(blob[offset++]);
-      edge.child = ReadU32(blob, offset);
+      edge.child = ReadU32(blob, offset, kCacheName);
     }
 
     if (offset != blob.size()) {
