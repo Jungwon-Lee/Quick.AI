@@ -114,6 +114,21 @@ public:
                        const std::string &merges_blob,
                        const std::string &added_tokens = "");
   /**
+   * @brief Create a compact native BPE tokenizer from a tokenizer.json blob.
+   *
+   * Unsupported BPE variants throw an exception so callers can fall back to the
+   * HuggingFace tokenizer.
+   */
+  static std::unique_ptr<Tokenizer>
+  FromBlobBPEJSON(const std::string &json_blob);
+
+  /**
+   * @brief Create a compact native BPE tokenizer from Quick.AI's cache blob.
+   */
+  static std::unique_ptr<Tokenizer>
+  FromBlobBPECache(const std::string &cache_blob);
+
+  /**
    * @brief Create a WordPiece tokenizer from a vocab.txt-style blob.
    *
    * The vocabulary blob must contain one token per line. The line number is

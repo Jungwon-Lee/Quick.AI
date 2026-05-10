@@ -33,6 +33,7 @@ powershell_prog = find_program('powershell', required: (build_machine.system() =
 
 quick_dot_ai_src = [
     meson.current_source_dir() / 'tokenizers' / 'huggingface_tokenizer.cpp',
+    meson.current_source_dir() / 'tokenizers' / 'bpe_tokenizer.cpp',
     meson.current_source_dir() / 'tokenizers' / 'wordpiece_tokenizer.cpp',
     meson.current_source_dir() / 'llm_util.cpp',
     meson.current_source_dir() / 'api' / 'causal_lm_api.cpp',

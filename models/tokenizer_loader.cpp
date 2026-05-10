@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -54,6 +55,11 @@ bool HasSuffix(const std::string &text, const std::string &suffix) {
 bool IsWordPieceType(const std::string &tokenizer_type) {
   const std::string lower = ToLowerString(tokenizer_type);
   return lower == "wordpiece" || lower == "bert" || lower == "tinybert";
+}
+
+bool IsBPEType(const std::string &tokenizer_type) {
+  const std::string lower = ToLowerString(tokenizer_type);
+  return lower == "bpe" || lower == "bytelevelbpe" || lower == "byte_level_bpe";
 }
 
 bool TryLoadBytesFromFile(const std::string &path, std::string &buffer) {
@@ -136,6 +142,17 @@ bool IsWordPieceTokenizerJson(const json &tokenizer_json) {
   const json &model = tokenizer_json["model"];
   return model.contains("type") && model["type"].is_string() &&
          ToLowerString(model["type"].get<std::string>()) == "wordpiece";
+}
+
+bool IsBPETokenizerJson(const json &tokenizer_json) {
+  if (!tokenizer_json.contains("model") ||
+      !tokenizer_json["model"].is_object()) {
+    return false;
+  }
+
+  const json &model = tokenizer_json["model"];
+  return model.contains("type") && model["type"].is_string() &&
+         ToLowerString(model["type"].get<std::string>()) == "bpe";
 }
 
 std::string BuildWordPieceVocabBlob(const json &tokenizer_json,
@@ -242,6 +259,108 @@ std::unique_ptr<tokenizers::Tokenizer> LoadWordPieceTokenizer(
   return tokenizer;
 }
 
+std::unique_ptr<tokenizers::Tokenizer>
+TryLoadBPETokenizerCache(const std::string &cache_file,
+                         const std::string &source_file) {
+  if (!IsCacheFresh(cache_file, source_file)) {
+    return nullptr;
+  }
+
+  std::string cache_blob;
+  if (TryLoadBytesFromFile(cache_file, cache_blob)) {
+    try {
+      return tokenizers::Tokenizer::FromBlobBPECache(cache_blob);
+    } catch (const std::exception &e) {
+      std::cerr << "Ignoring invalid BPE tokenizer cache: " << e.what()
+                << std::endl;
+    }
+  }
+
+  return nullptr;
+}
+
+std::vector<std::string>
+BuildBPEConformancePrompts(const json &tokenizer_json) {
+  std::vector<std::string> prompts = {
+    "",
+    "Hello world!",
+    "  leading and trailing  ",
+    "def foo(x):\n    return x + 1",
+    "\xEC\x95\x88\xEB\x85\x95\xED\x95\x98\xEC\x84\xB8\xEC\x9A\x94 "
+    "\xEC\x84\xB8\xEA\xB3\x84",
+    "emoji \xF0\x9F\x98\x80 test",
+    "tabs\tand\nnewlines\n",
+  };
+
+  if (tokenizer_json.contains("added_tokens") &&
+      tokenizer_json["added_tokens"].is_array()) {
+    size_t added = 0;
+    for (const auto &token : tokenizer_json["added_tokens"]) {
+      if (!token.is_object() || !token.contains("content") ||
+          !token["content"].is_string()) {
+        continue;
+      }
+
+      const std::string content = token["content"].get<std::string>();
+      prompts.push_back(content);
+      prompts.push_back(content + " user\nhello " + content);
+      if (++added >= 8) {
+        break;
+      }
+    }
+  }
+
+  return prompts;
+}
+
+bool HasSameEncoding(tokenizers::Tokenizer &lhs, tokenizers::Tokenizer &rhs,
+                     const std::vector<std::string> &prompts) {
+  for (const std::string &prompt : prompts) {
+    for (bool add_special_tokens : {false, true}) {
+      if (lhs.Encode(prompt, add_special_tokens) !=
+          rhs.Encode(prompt, add_special_tokens)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
+std::unique_ptr<tokenizers::Tokenizer> LoadExactBPETokenizer(
+  const std::string &tokenizer_blob, const std::string &cache_file,
+  const std::string &source_file, const json &tokenizer_json) {
+  auto cached_tokenizer = TryLoadBPETokenizerCache(cache_file, source_file);
+  if (cached_tokenizer) {
+    return cached_tokenizer;
+  }
+
+  auto original_tokenizer = tokenizers::Tokenizer::FromBlobJSON(tokenizer_blob);
+
+  try {
+    auto candidate_tokenizer =
+      tokenizers::Tokenizer::FromBlobBPEJSON(tokenizer_json.dump());
+    if (HasSameEncoding(*original_tokenizer, *candidate_tokenizer,
+                        BuildBPEConformancePrompts(tokenizer_json))) {
+      const std::string cache_blob = candidate_tokenizer->SerializeToCache();
+      if (!TryWriteBytesToFile(cache_file, cache_blob)) {
+        std::cerr << "Failed to write BPE tokenizer cache: " << cache_file
+                  << std::endl;
+      }
+      return candidate_tokenizer;
+    }
+
+    std::cerr << "Ignoring BPE tokenizer cache candidate: conformance check "
+                 "failed"
+              << std::endl;
+  } catch (const std::exception &e) {
+    std::cerr << "Ignoring BPE tokenizer cache candidate: " << e.what()
+              << std::endl;
+  }
+
+  return original_tokenizer;
+}
+
 } // namespace
 
 std::unique_ptr<tokenizers::Tokenizer> LoadTokenizer(nlohmann::json &nntr_cfg) {
@@ -251,15 +370,19 @@ std::unique_ptr<tokenizers::Tokenizer> LoadTokenizer(nlohmann::json &nntr_cfg) {
     nntr_cfg.contains("tokenizer_type")
       ? nntr_cfg["tokenizer_type"].get<std::string>()
       : "";
-  const std::string cache_file =
-    nntr_cfg.contains("tokenizer_cache_file")
-      ? nntr_cfg["tokenizer_cache_file"].get<std::string>()
-      : tokenizer_file + ".qaiwp";
+  const bool has_custom_cache_file = nntr_cfg.contains("tokenizer_cache_file");
+  const std::string wordpiece_cache_file =
+    has_custom_cache_file ? nntr_cfg["tokenizer_cache_file"].get<std::string>()
+                          : tokenizer_file + ".qaiwp";
+  const std::string bpe_cache_file =
+    has_custom_cache_file ? nntr_cfg["tokenizer_cache_file"].get<std::string>()
+                          : tokenizer_file + ".qaibpe";
 
   const std::string lower_path = ToLowerString(tokenizer_file);
   const bool looks_like_vocab_txt =
     HasSuffix(lower_path, ".txt") || HasSuffix(lower_path, "vocab");
   const bool requested_wordpiece = IsWordPieceType(tokenizer_type);
+  const bool requested_bpe = IsBPEType(tokenizer_type);
 
   WordPieceConfig config;
   if (nntr_cfg.contains("tokenizer_do_lower_case")) {
@@ -283,30 +406,60 @@ std::unique_ptr<tokenizers::Tokenizer> LoadTokenizer(nlohmann::json &nntr_cfg) {
     config.sep_token = nntr_cfg["tokenizer_sep_token"].get<std::string>();
   }
 
-  const std::string tokenizer_blob = LoadBytesFromFile(tokenizer_file);
-  const bool may_be_wordpiece_json =
-    HasSuffix(lower_path, ".json") &&
-    tokenizer_blob.find("WordPiece") != std::string::npos;
+  const bool looks_like_tokenizer_json = HasSuffix(lower_path, ".json");
 
-  if (requested_wordpiece || looks_like_vocab_txt || may_be_wordpiece_json) {
+  if (requested_wordpiece || looks_like_vocab_txt ||
+      (!has_custom_cache_file && looks_like_tokenizer_json)) {
     auto cached_tokenizer =
-      TryLoadWordPieceTokenizerCache(cache_file, tokenizer_file);
+      TryLoadWordPieceTokenizerCache(wordpiece_cache_file, tokenizer_file);
     if (cached_tokenizer) {
       return cached_tokenizer;
     }
   }
 
-  if (requested_wordpiece || looks_like_vocab_txt) {
-    return LoadWordPieceTokenizer(tokenizer_blob, cache_file, tokenizer_file,
-                                  config);
+  if (requested_bpe || (!has_custom_cache_file && looks_like_tokenizer_json)) {
+    auto cached_tokenizer =
+      TryLoadBPETokenizerCache(bpe_cache_file, tokenizer_file);
+    if (cached_tokenizer) {
+      return cached_tokenizer;
+    }
   }
 
+  const std::string tokenizer_blob = LoadBytesFromFile(tokenizer_file);
+  const bool may_be_wordpiece_json =
+    looks_like_tokenizer_json &&
+    tokenizer_blob.find("WordPiece") != std::string::npos;
+  const bool may_be_bpe_json =
+    looks_like_tokenizer_json &&
+    tokenizer_blob.find("\"BPE\"") != std::string::npos;
+
+  if (requested_wordpiece || looks_like_vocab_txt) {
+    return LoadWordPieceTokenizer(tokenizer_blob, wordpiece_cache_file,
+                                  tokenizer_file, config);
+  }
+
+  std::unique_ptr<json> tokenizer_json;
+  auto get_tokenizer_json = [&]() -> json & {
+    if (!tokenizer_json) {
+      tokenizer_json = std::make_unique<json>(json::parse(tokenizer_blob));
+    }
+    return *tokenizer_json;
+  };
+
   if (may_be_wordpiece_json) {
-    json tokenizer_json = json::parse(tokenizer_blob);
-    if (IsWordPieceTokenizerJson(tokenizer_json)) {
-      std::string vocab_blob = BuildWordPieceVocabBlob(tokenizer_json, config);
-      return LoadWordPieceTokenizer(vocab_blob, cache_file, tokenizer_file,
-                                    config);
+    json &json_blob = get_tokenizer_json();
+    if (IsWordPieceTokenizerJson(json_blob)) {
+      std::string vocab_blob = BuildWordPieceVocabBlob(json_blob, config);
+      return LoadWordPieceTokenizer(vocab_blob, wordpiece_cache_file,
+                                    tokenizer_file, config);
+    }
+  }
+
+  if (requested_bpe || may_be_bpe_json) {
+    json &json_blob = get_tokenizer_json();
+    if (IsBPETokenizerJson(json_blob)) {
+      return LoadExactBPETokenizer(tokenizer_blob, bpe_cache_file,
+                                   tokenizer_file, json_blob);
     }
   }
 
