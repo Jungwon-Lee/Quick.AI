@@ -22,9 +22,11 @@
  */
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <vector>
 
+#include "chat_template.h"
 #include "json.hpp"
 #include <app_context.h>
 #include <factory.h>
@@ -41,7 +43,6 @@
 #include "qwen3_embedding.h"
 #include "qwen3_moe_causallm.h"
 #include "qwen3_slim_moe_causallm.h"
-#include <models/gemma3/function.h>
 #include <sys/resource.h>
 
 #include <atomic>
@@ -243,14 +244,24 @@ int main(int argc, char *argv[]) {
       architecture = resolve_architecture(model_type, architecture);
     }
 
+    std::optional<quick_dot_ai::ChatTemplate> chat_template;
+    if (quick_dot_ai::ChatTemplate::Exists(model_path)) {
+      chat_template.emplace(quick_dot_ai::ChatTemplate::Load(model_path));
+    } else if (architecture == "Gemma3ForCausalLM" &&
+               nntr_cfg.contains("chat_input")) {
+      chat_template.emplace(quick_dot_ai::ChatTemplate::LoadBuiltin(
+        quick_dot_ai::ChatTemplate::Builtin::FunctionGemma));
+    }
+
     // Determine input text
     if (argc >= 3) {
       input_text = argv[2];
     } else {
       if (nntr_cfg.contains("chat_input")) {
-        if (architecture == "Gemma3ForCausalLM") {
-          input_text = quick_dot_ai::gemma3::apply_function_gemma_template(
-            nntr_cfg["chat_input"]);
+        if (chat_template.has_value()) {
+          input_text = chat_template->apply(nntr_cfg["chat_input"]);
+          system_head_prompt.clear();
+          system_tail_prompt.clear();
         } else {
           std::cerr << "[Warning] 'chat_input' is set but support for model "
                        "architecture '"

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <iostream>
 #include <sstream>
+#include <unordered_map>
 #include <vector>
 
 namespace quick_dot_ai {
@@ -136,6 +137,7 @@ std::string apply_function_gemma_template(const json &chat_input) {
   prompt << "<bos>";
   const auto &messages = chat_input["messages"];
   bool tools_inserted = false;
+  std::unordered_map<std::string, std::string> tool_call_names;
 
   for (size_t i = 0; i < messages.size(); ++i) {
     const auto &message = messages[i];
@@ -149,7 +151,7 @@ std::string apply_function_gemma_template(const json &chat_input) {
     }
 
     // Content
-    if (message.contains("content")) {
+    if (role != "tool" && message.contains("content")) {
       if (message["content"].is_string()) {
         prompt << message["content"].get<std::string>();
       }
@@ -170,8 +172,11 @@ std::string apply_function_gemma_template(const json &chat_input) {
     if (message.contains("tool_calls")) {
       for (const auto &tool_call : message["tool_calls"]) {
         const auto &func = tool_call["function"];
-        prompt << "<start_function_call>call:"
-               << func["name"].get<std::string>() << "{";
+        std::string func_name = func["name"].get<std::string>();
+        if (tool_call.contains("id") && tool_call["id"].is_string())
+          tool_call_names[tool_call["id"].get<std::string>()] = func_name;
+
+        prompt << "<start_function_call>call:" << func_name << "{";
         // Simplistic argument formatting
         if (func.contains("arguments")) {
           if (func["arguments"].is_object()) {
@@ -196,6 +201,14 @@ std::string apply_function_gemma_template(const json &chat_input) {
     } else {
       if (message.contains("content")) {
         std::string name = message.value("name", "");
+        if (name.empty() && message.contains("tool_call_id") &&
+            message["tool_call_id"].is_string()) {
+          const auto it =
+            tool_call_names.find(message["tool_call_id"].get<std::string>());
+          if (it != tool_call_names.end())
+            name = it->second;
+        }
+
         std::string content_str;
         if (message["content"].is_string())
           content_str = message["content"].get<std::string>();

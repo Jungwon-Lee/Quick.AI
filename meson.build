@@ -40,10 +40,12 @@ quick_dot_ai_src = [
 
 executable_src = [
     meson.current_source_dir() / 'main.cpp',
+    meson.current_source_dir() / 'chat_template.cpp',
 ]
 
 quick_dot_ai_inc_abs = [meson.current_source_dir()]
 quick_dot_ai_inc = [include_directories('.')]
+quick_dot_ai_minja_inc = include_directories('third_party/minja/include')
 
 # Build layer dependency
 quick_dot_ai_layer_dependencies = []
@@ -104,8 +106,13 @@ quick_dot_ai_dep = declare_dependency(
 
 e = executable('quick_dot_ai_run',
     executable_src,
-    include_directories: quick_dot_ai_inc,
-    dependencies: [nntrainer_dep, nntrainer_ccapi_dep, quick_dot_ai_layer_dependencies, quick_dot_ai_dep],
+    include_directories: [quick_dot_ai_inc, quick_dot_ai_minja_inc],
+    dependencies: [
+        nntrainer_dep,
+        nntrainer_ccapi_dep,
+        quick_dot_ai_layer_dependencies,
+        quick_dot_ai_dep
+    ],
 )
 
 
