@@ -36,11 +36,18 @@ using cache_util::AppendHeader;
 using cache_util::AppendU32;
 using cache_util::ReadBytes;
 using cache_util::ReadHeader;
+using cache_util::ReadTrivialVector;
 using cache_util::ReadU32;
+using cache_util::ReadU32Vector;
 
 enum class BPEVariant : uint32_t {
   ByteLevel = 1,
   SpaceReplacement = 2,
+};
+
+enum class NormalizerKind : uint32_t {
+  None = 0,
+  NFC = 1,
 };
 
 struct TokenEntry {
@@ -48,6 +55,8 @@ struct TokenEntry {
   uint32_t length = 0;
   uint32_t id = 0;
 };
+static_assert(sizeof(TokenEntry) == sizeof(uint32_t) * 3,
+              "TokenEntry cache layout must stay packed");
 
 struct MergeEntry {
   uint32_t left = 0;
@@ -55,6 +64,8 @@ struct MergeEntry {
   uint32_t rank = 0;
   uint32_t merged = 0;
 };
+static_assert(sizeof(MergeEntry) == sizeof(uint32_t) * 4,
+              "MergeEntry cache layout must stay packed");
 
 uint64_t PairKey(uint32_t left, uint32_t right) {
   return (static_cast<uint64_t>(left) << 32) | right;
@@ -107,6 +118,174 @@ uint32_t DecodeUtf8At(const std::string &text, size_t offset, size_t &next) {
   return c;
 }
 
+struct CompositionPair {
+  uint32_t first;
+  uint32_t second;
+  uint32_t composed;
+};
+
+constexpr CompositionPair kNFCCompositions[] = {
+  {0x0041, 0x0300, 0x00C0}, {0x0041, 0x0301, 0x00C1}, {0x0041, 0x0302, 0x00C2},
+  {0x0041, 0x0303, 0x00C3}, {0x0041, 0x0308, 0x00C4}, {0x0041, 0x030A, 0x00C5},
+  {0x0043, 0x0327, 0x00C7}, {0x0045, 0x0300, 0x00C8}, {0x0045, 0x0301, 0x00C9},
+  {0x0045, 0x0302, 0x00CA}, {0x0045, 0x0308, 0x00CB}, {0x0049, 0x0300, 0x00CC},
+  {0x0049, 0x0301, 0x00CD}, {0x0049, 0x0302, 0x00CE}, {0x0049, 0x0308, 0x00CF},
+  {0x004E, 0x0303, 0x00D1}, {0x004F, 0x0300, 0x00D2}, {0x004F, 0x0301, 0x00D3},
+  {0x004F, 0x0302, 0x00D4}, {0x004F, 0x0303, 0x00D5}, {0x004F, 0x0308, 0x00D6},
+  {0x0055, 0x0300, 0x00D9}, {0x0055, 0x0301, 0x00DA}, {0x0055, 0x0302, 0x00DB},
+  {0x0055, 0x0308, 0x00DC}, {0x0059, 0x0301, 0x00DD}, {0x0061, 0x0300, 0x00E0},
+  {0x0061, 0x0301, 0x00E1}, {0x0061, 0x0302, 0x00E2}, {0x0061, 0x0303, 0x00E3},
+  {0x0061, 0x0308, 0x00E4}, {0x0061, 0x030A, 0x00E5}, {0x0063, 0x0301, 0x0107},
+  {0x0063, 0x0327, 0x00E7}, {0x0065, 0x0300, 0x00E8}, {0x0065, 0x0301, 0x00E9},
+  {0x0065, 0x0302, 0x00EA}, {0x0065, 0x0308, 0x00EB}, {0x0069, 0x0300, 0x00EC},
+  {0x0069, 0x0301, 0x00ED}, {0x0069, 0x0302, 0x00EE}, {0x0069, 0x0308, 0x00EF},
+  {0x006E, 0x0301, 0x0144}, {0x006E, 0x0303, 0x00F1}, {0x006F, 0x0300, 0x00F2},
+  {0x006F, 0x0301, 0x00F3}, {0x006F, 0x0302, 0x00F4}, {0x006F, 0x0303, 0x00F5},
+  {0x006F, 0x0308, 0x00F6}, {0x0075, 0x0300, 0x00F9}, {0x0075, 0x0301, 0x00FA},
+  {0x0075, 0x0302, 0x00FB}, {0x0075, 0x0308, 0x00FC}, {0x0079, 0x0301, 0x00FD},
+  {0x0079, 0x0308, 0x00FF}, {0x0391, 0x0301, 0x0386}, {0x0395, 0x0301, 0x0388},
+  {0x0397, 0x0301, 0x0389}, {0x0399, 0x0301, 0x038A}, {0x039F, 0x0301, 0x038C},
+  {0x03A5, 0x0301, 0x038E}, {0x03A9, 0x0301, 0x038F}, {0x03B1, 0x0301, 0x03AC},
+  {0x03B5, 0x0301, 0x03AD}, {0x03B7, 0x0301, 0x03AE}, {0x03B9, 0x0301, 0x03AF},
+  {0x03BF, 0x0301, 0x03CC}, {0x03C5, 0x0301, 0x03CD}, {0x03C9, 0x0301, 0x03CE},
+  {0x0415, 0x0308, 0x0401}, {0x0418, 0x0306, 0x0419}, {0x0423, 0x0306, 0x040E},
+  {0x0435, 0x0308, 0x0451}, {0x0438, 0x0306, 0x0439}, {0x0443, 0x0306, 0x045E},
+  {0x3046, 0x3099, 0x3094}, {0x304B, 0x3099, 0x304C}, {0x304D, 0x3099, 0x304E},
+  {0x304F, 0x3099, 0x3050}, {0x3051, 0x3099, 0x3052}, {0x3053, 0x3099, 0x3054},
+  {0x305F, 0x3099, 0x3060}, {0x306F, 0x3099, 0x3070}, {0x306F, 0x309A, 0x3071},
+  {0x30A6, 0x3099, 0x30F4}, {0x30AB, 0x3099, 0x30AC}, {0x30AD, 0x3099, 0x30AE},
+  {0x30AF, 0x3099, 0x30B0}, {0x30B1, 0x3099, 0x30B2}, {0x30B3, 0x3099, 0x30B4},
+  {0x30CF, 0x3099, 0x30D0}, {0x30CF, 0x309A, 0x30D1}, {0x0041, 0x0323, 0x1EA0},
+  {0x0061, 0x0323, 0x1EA1}, {0x0041, 0x0309, 0x1EA2}, {0x0061, 0x0309, 0x1EA3},
+  {0x00C2, 0x0301, 0x1EA4}, {0x00E2, 0x0301, 0x1EA5}, {0x00C2, 0x0300, 0x1EA6},
+  {0x00E2, 0x0300, 0x1EA7}, {0x00C2, 0x0309, 0x1EA8}, {0x00E2, 0x0309, 0x1EA9},
+  {0x00C2, 0x0303, 0x1EAA}, {0x00E2, 0x0303, 0x1EAB}, {0x1EA0, 0x0302, 0x1EAC},
+  {0x1EA1, 0x0302, 0x1EAD}, {0x0102, 0x0301, 0x1EAE}, {0x0103, 0x0301, 0x1EAF},
+  {0x0102, 0x0300, 0x1EB0}, {0x0103, 0x0300, 0x1EB1}, {0x0102, 0x0309, 0x1EB2},
+  {0x0103, 0x0309, 0x1EB3}, {0x0102, 0x0303, 0x1EB4}, {0x0103, 0x0303, 0x1EB5},
+  {0x1EA0, 0x0306, 0x1EB6}, {0x1EA1, 0x0306, 0x1EB7}, {0x0045, 0x0323, 0x1EB8},
+  {0x0065, 0x0323, 0x1EB9}, {0x0045, 0x0309, 0x1EBA}, {0x0065, 0x0309, 0x1EBB},
+  {0x0045, 0x0303, 0x1EBC}, {0x0065, 0x0303, 0x1EBD}, {0x00CA, 0x0301, 0x1EBE},
+  {0x00EA, 0x0301, 0x1EBF}, {0x00CA, 0x0300, 0x1EC0}, {0x00EA, 0x0300, 0x1EC1},
+  {0x00CA, 0x0309, 0x1EC2}, {0x00EA, 0x0309, 0x1EC3}, {0x00CA, 0x0303, 0x1EC4},
+  {0x00EA, 0x0303, 0x1EC5}, {0x1EB8, 0x0302, 0x1EC6}, {0x1EB9, 0x0302, 0x1EC7},
+  {0x0049, 0x0309, 0x1EC8}, {0x0069, 0x0309, 0x1EC9}, {0x0049, 0x0323, 0x1ECA},
+  {0x0069, 0x0323, 0x1ECB}, {0x004F, 0x0323, 0x1ECC}, {0x006F, 0x0323, 0x1ECD},
+  {0x004F, 0x0309, 0x1ECE}, {0x006F, 0x0309, 0x1ECF}, {0x00D4, 0x0301, 0x1ED0},
+  {0x00F4, 0x0301, 0x1ED1}, {0x00D4, 0x0300, 0x1ED2}, {0x00F4, 0x0300, 0x1ED3},
+  {0x00D4, 0x0309, 0x1ED4}, {0x00F4, 0x0309, 0x1ED5}, {0x00D4, 0x0303, 0x1ED6},
+  {0x00F4, 0x0303, 0x1ED7}, {0x1ECC, 0x0302, 0x1ED8}, {0x1ECD, 0x0302, 0x1ED9},
+  {0x01A0, 0x0301, 0x1EDA}, {0x01A1, 0x0301, 0x1EDB}, {0x01A0, 0x0300, 0x1EDC},
+  {0x01A1, 0x0300, 0x1EDD}, {0x01A0, 0x0309, 0x1EDE}, {0x01A1, 0x0309, 0x1EDF},
+  {0x01A0, 0x0303, 0x1EE0}, {0x01A1, 0x0303, 0x1EE1}, {0x01A0, 0x0323, 0x1EE2},
+  {0x01A1, 0x0323, 0x1EE3}, {0x0055, 0x0323, 0x1EE4}, {0x0075, 0x0323, 0x1EE5},
+  {0x0055, 0x0309, 0x1EE6}, {0x0075, 0x0309, 0x1EE7}, {0x01AF, 0x0301, 0x1EE8},
+  {0x01B0, 0x0301, 0x1EE9}, {0x01AF, 0x0300, 0x1EEA}, {0x01B0, 0x0300, 0x1EEB},
+  {0x01AF, 0x0309, 0x1EEC}, {0x01B0, 0x0309, 0x1EED}, {0x01AF, 0x0303, 0x1EEE},
+  {0x01B0, 0x0303, 0x1EEF}, {0x01AF, 0x0323, 0x1EF0}, {0x01B0, 0x0323, 0x1EF1},
+  {0x0059, 0x0300, 0x1EF2}, {0x0079, 0x0300, 0x1EF3}, {0x0059, 0x0323, 0x1EF4},
+  {0x0079, 0x0323, 0x1EF5}, {0x0059, 0x0309, 0x1EF6}, {0x0079, 0x0309, 0x1EF7},
+  {0x0059, 0x0303, 0x1EF8}, {0x0079, 0x0303, 0x1EF9},
+};
+
+bool IsLikelyCombiningMark(uint32_t cp) {
+  return (cp >= 0x0300 && cp <= 0x036f) || (cp >= 0x0591 && cp <= 0x05c7) ||
+         (cp >= 0x0610 && cp <= 0x065f) || (cp >= 0x1161 && cp <= 0x11ff) ||
+         (cp >= 0x1ab0 && cp <= 0x1aff) || (cp >= 0x1dc0 && cp <= 0x1dff) ||
+         (cp >= 0x20d0 && cp <= 0x20ff) || (cp >= 0x3099 && cp <= 0x309a) ||
+         (cp >= 0xfe20 && cp <= 0xfe2f);
+}
+
+bool TryComposeHangul(uint32_t first, uint32_t second, uint32_t &composed) {
+  constexpr uint32_t kSBase = 0xac00;
+  constexpr uint32_t kLBase = 0x1100;
+  constexpr uint32_t kVBase = 0x1161;
+  constexpr uint32_t kTBase = 0x11a7;
+  constexpr uint32_t kLCount = 19;
+  constexpr uint32_t kVCount = 21;
+  constexpr uint32_t kTCount = 28;
+  constexpr uint32_t kNCount = kVCount * kTCount;
+  constexpr uint32_t kSCount = kLCount * kNCount;
+
+  const uint32_t l_index = first - kLBase;
+  if (l_index < kLCount) {
+    const uint32_t v_index = second - kVBase;
+    if (v_index < kVCount) {
+      composed = kSBase + (l_index * kVCount + v_index) * kTCount;
+      return true;
+    }
+  }
+
+  const uint32_t s_index = first - kSBase;
+  if (s_index < kSCount && s_index % kTCount == 0) {
+    const uint32_t t_index = second - kTBase;
+    if (t_index > 0 && t_index < kTCount) {
+      composed = first + t_index;
+      return true;
+    }
+  }
+
+  return false;
+}
+
+bool TryComposePair(uint32_t first, uint32_t second, uint32_t &composed) {
+  for (const CompositionPair &entry : kNFCCompositions) {
+    if (entry.first == first && entry.second == second) {
+      composed = entry.composed;
+      return true;
+    }
+  }
+  return false;
+}
+
+bool TryComposeNFC(uint32_t first, uint32_t second, uint32_t &composed) {
+  return TryComposeHangul(first, second, composed) ||
+         TryComposePair(first, second, composed);
+}
+
+std::string NormalizeNFC(const std::string &text) {
+  bool has_non_ascii = false;
+  for (unsigned char c : text) {
+    if (c >= 0x80) {
+      has_non_ascii = true;
+      break;
+    }
+  }
+  if (!has_non_ascii) {
+    return text;
+  }
+
+  std::vector<uint32_t> codepoints;
+  codepoints.reserve(text.size());
+  bool has_starter = false;
+  size_t starter_index = 0;
+
+  for (size_t i = 0; i < text.size();) {
+    size_t next = i;
+    const uint32_t cp = DecodeUtf8At(text, i, next);
+    uint32_t composed = 0;
+    if (has_starter && TryComposeNFC(codepoints[starter_index], cp, composed)) {
+      codepoints[starter_index] = composed;
+      i = next;
+      continue;
+    }
+
+    codepoints.push_back(cp);
+    if (!IsLikelyCombiningMark(cp)) {
+      starter_index = codepoints.size() - 1;
+      has_starter = true;
+    }
+    i = next;
+  }
+
+  std::string out;
+  out.reserve(text.size());
+  for (uint32_t cp : codepoints) {
+    AppendUtf8(out, cp);
+  }
+  return out;
+}
+
 bool IsAsciiWhitespace(uint32_t cp) {
   return cp == ' ' || cp == '\t' || cp == '\n' || cp == '\r' || cp == '\f' ||
          cp == '\v';
@@ -127,10 +306,10 @@ bool IsLetterOrNumber(uint32_t cp) {
 
   return (cp >= 0x00c0 && cp <= 0x02af) || (cp >= 0x0370 && cp <= 0x052f) ||
          (cp >= 0x0590 && cp <= 0x08ff) || (cp >= 0x0900 && cp <= 0x0d7f) ||
-         (cp >= 0x1100 && cp <= 0x11ff) || (cp >= 0x3040 && cp <= 0x30ff) ||
-         (cp >= 0x3400 && cp <= 0x9fff) || (cp >= 0xac00 && cp <= 0xd7af) ||
-         (cp >= 0xff10 && cp <= 0xff19) || (cp >= 0xff21 && cp <= 0xff3a) ||
-         (cp >= 0xff41 && cp <= 0xff5a);
+         (cp >= 0x1100 && cp <= 0x11ff) || (cp >= 0x1e00 && cp <= 0x1fff) ||
+         (cp >= 0x3040 && cp <= 0x30ff) || (cp >= 0x3400 && cp <= 0x9fff) ||
+         (cp >= 0xac00 && cp <= 0xd7af) || (cp >= 0xff10 && cp <= 0xff19) ||
+         (cp >= 0xff21 && cp <= 0xff3a) || (cp >= 0xff41 && cp <= 0xff5a);
 }
 
 bool StartsWithInsensitive(const std::string &text, size_t offset,
@@ -390,6 +569,7 @@ public:
     std::string out;
     AppendHeader(out, kCacheKind);
     AppendU32(out, static_cast<uint32_t>(variant_));
+    AppendU32(out, static_cast<uint32_t>(normalizer_));
     AppendU32(out, digit_group_size_);
     AppendU32(out, unk_id_);
     AppendU32(out, static_cast<uint32_t>(GetVocabSizeInternal()));
@@ -457,6 +637,7 @@ private:
         tokenizer_json["pre_tokenizer"]["type"].get<std::string>() ==
           "Sequence") {
       variant_ = BPEVariant::ByteLevel;
+      normalizer_ = DetectByteLevelNormalizer(tokenizer_json);
       digit_group_size_ = 1;
       const std::string pre = tokenizer_json["pre_tokenizer"].dump();
       if (pre.find("\\\\p{N}{1,3}") != std::string::npos) {
@@ -470,11 +651,28 @@ private:
         tokenizer_json["normalizer"].contains("type") &&
         tokenizer_json["normalizer"]["type"].get<std::string>() == "Replace") {
       variant_ = BPEVariant::SpaceReplacement;
+      normalizer_ = NormalizerKind::None;
       digit_group_size_ = 1;
       return;
     }
 
     throw std::runtime_error("Unsupported BPE tokenizer variant");
+  }
+
+  NormalizerKind DetectByteLevelNormalizer(const json &tokenizer_json) const {
+    if (!tokenizer_json.contains("normalizer") ||
+        tokenizer_json["normalizer"].is_null()) {
+      return NormalizerKind::None;
+    }
+
+    const json &normalizer = tokenizer_json["normalizer"];
+    if (normalizer.is_object() && normalizer.contains("type") &&
+        normalizer["type"].is_string() &&
+        normalizer["type"].get<std::string>() == "NFC") {
+      return NormalizerKind::NFC;
+    }
+
+    throw std::runtime_error("Unsupported BPE byte-level normalizer");
   }
 
   void LoadTokens(const json &tokenizer_json) {
@@ -657,6 +855,8 @@ private:
   void LoadCache(const std::string &blob) {
     size_t offset = ReadHeader(blob, kCacheKind, kCacheName);
     variant_ = static_cast<BPEVariant>(ReadU32(blob, offset, kCacheName));
+    normalizer_ =
+      static_cast<NormalizerKind>(ReadU32(blob, offset, kCacheName));
     digit_group_size_ = ReadU32(blob, offset, kCacheName);
     unk_id_ = ReadU32(blob, offset, kCacheName);
     const uint32_t vocab_size = ReadU32(blob, offset, kCacheName);
@@ -666,35 +866,15 @@ private:
     const uint32_t special_count = ReadU32(blob, offset, kCacheName);
     const uint32_t prefix_count = ReadU32(blob, offset, kCacheName);
 
-    token_offsets_.resize(static_cast<size_t>(vocab_size) + 1);
-    for (uint32_t &value : token_offsets_) {
-      value = ReadU32(blob, offset, kCacheName);
-    }
+    ReadU32Vector(blob, offset, static_cast<size_t>(vocab_size) + 1,
+                  token_offsets_, kCacheName);
     token_bytes_ = ReadBytes(blob, offset, token_bytes_size, kCacheName);
 
-    token_entries_.resize(token_entry_count);
-    for (auto &entry : token_entries_) {
-      entry.offset = ReadU32(blob, offset, kCacheName);
-      entry.length = ReadU32(blob, offset, kCacheName);
-      entry.id = ReadU32(blob, offset, kCacheName);
-    }
-
-    merges_.resize(merge_count);
-    for (auto &merge : merges_) {
-      merge.left = ReadU32(blob, offset, kCacheName);
-      merge.right = ReadU32(blob, offset, kCacheName);
-      merge.rank = ReadU32(blob, offset, kCacheName);
-      merge.merged = ReadU32(blob, offset, kCacheName);
-    }
-
-    special_ids_.resize(special_count);
-    for (uint32_t &id : special_ids_) {
-      id = ReadU32(blob, offset, kCacheName);
-    }
-    prefix_ids_.resize(prefix_count);
-    for (uint32_t &id : prefix_ids_) {
-      id = ReadU32(blob, offset, kCacheName);
-    }
+    ReadTrivialVector(blob, offset, token_entry_count, token_entries_,
+                      kCacheName);
+    ReadTrivialVector(blob, offset, merge_count, merges_, kCacheName);
+    ReadU32Vector(blob, offset, special_count, special_ids_, kCacheName);
+    ReadU32Vector(blob, offset, prefix_count, prefix_ids_, kCacheName);
 
     if (offset != blob.size()) {
       throw std::runtime_error("Invalid BPE cache: trailing bytes");
@@ -709,6 +889,10 @@ private:
     if (variant_ != BPEVariant::ByteLevel &&
         variant_ != BPEVariant::SpaceReplacement) {
       throw std::runtime_error("Invalid BPE cache: bad variant");
+    }
+    if (normalizer_ != NormalizerKind::None &&
+        normalizer_ != NormalizerKind::NFC) {
+      throw std::runtime_error("Invalid BPE cache: bad normalizer");
     }
     if (token_offsets_.empty() || token_offsets_.front() != 0 ||
         static_cast<size_t>(token_offsets_.back()) != token_bytes_.size()) {
@@ -801,7 +985,13 @@ private:
     }
 
     if (variant_ == BPEVariant::ByteLevel) {
-      for (const std::string &piece : GPTSplit(text, digit_group_size_)) {
+      std::string normalized;
+      const std::string *ordinary = &text;
+      if (normalizer_ == NormalizerKind::NFC) {
+        normalized = NormalizeNFC(text);
+        ordinary = &normalized;
+      }
+      for (const std::string &piece : GPTSplit(*ordinary, digit_group_size_)) {
         EncodeBPE(ByteLevelEncode(piece), ids);
       }
     } else {
@@ -981,6 +1171,7 @@ private:
   }
 
   BPEVariant variant_ = BPEVariant::ByteLevel;
+  NormalizerKind normalizer_ = NormalizerKind::None;
   uint32_t digit_group_size_ = 1;
   uint32_t unk_id_ = kInvalidId;
   std::vector<uint32_t> token_offsets_;

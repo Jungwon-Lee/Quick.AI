@@ -19,14 +19,32 @@ namespace tokenizers {
 namespace {
 
 constexpr uint32_t kInvalidId = std::numeric_limits<uint32_t>::max();
+constexpr uint32_t kPackedInvalidId = cache_util::kMaxU24;
 constexpr char kCacheName[] = "WordPiece";
 constexpr cache_util::CacheKind kCacheKind = cache_util::CacheKind::WordPiece;
 
 using cache_util::AppendHeader;
+using cache_util::AppendU16;
+using cache_util::AppendU24;
 using cache_util::AppendU32;
 using cache_util::ReadBytes;
 using cache_util::ReadHeader;
 using cache_util::ReadU32;
+using cache_util::ReadU32Vector;
+
+uint32_t PackTokenId(uint32_t token_id) {
+  if (token_id == kInvalidId) {
+    return kPackedInvalidId;
+  }
+  if (token_id >= kPackedInvalidId) {
+    throw std::runtime_error("Invalid WordPiece cache: token id overflow");
+  }
+  return token_id;
+}
+
+uint32_t UnpackTokenId(uint32_t token_id) {
+  return token_id == kPackedInvalidId ? kInvalidId : token_id;
+}
 
 std::string ToLowerAscii(const std::string &text) {
   std::string out = text;
@@ -102,6 +120,8 @@ public:
     uint32_t edge_count = 0;
     uint32_t token_id = kInvalidId;
   };
+  static_assert(sizeof(TrieNode) == sizeof(uint32_t) * 3,
+                "TrieNode in-memory layout must stay compact");
 
   struct TrieEdge {
     unsigned char byte = 0;
@@ -232,13 +252,13 @@ public:
     }
     out += token_bytes_;
     for (const auto &node : nodes_) {
-      AppendU32(out, node.first_edge);
-      AppendU32(out, node.edge_count);
-      AppendU32(out, node.token_id);
+      AppendU24(out, node.first_edge, kCacheName);
+      AppendU16(out, node.edge_count, kCacheName);
+      AppendU24(out, PackTokenId(node.token_id), kCacheName);
     }
     for (const auto &edge : edges_) {
       out.push_back(static_cast<char>(edge.byte));
-      AppendU32(out, edge.child);
+      AppendU24(out, edge.child, kCacheName);
     }
 
     return out;
@@ -410,33 +430,65 @@ private:
     cls_token_ = ReadBytes(blob, offset, cls_len, kCacheName);
     sep_token_ = ReadBytes(blob, offset, sep_len, kCacheName);
 
-    token_offsets_.resize(static_cast<size_t>(vocab_size) + 1);
-    for (uint32_t &value : token_offsets_) {
-      value = ReadU32(blob, offset, kCacheName);
-    }
+    ReadU32Vector(blob, offset, static_cast<size_t>(vocab_size) + 1,
+                  token_offsets_, kCacheName);
     token_bytes_ = ReadBytes(blob, offset, token_bytes_size, kCacheName);
 
-    nodes_.resize(node_count);
-    for (auto &node : nodes_) {
-      node.first_edge = ReadU32(blob, offset, kCacheName);
-      node.edge_count = ReadU32(blob, offset, kCacheName);
-      node.token_id = ReadU32(blob, offset, kCacheName);
-    }
-
-    edges_.resize(edge_count);
-    for (auto &edge : edges_) {
-      if (offset >= blob.size()) {
-        throw std::runtime_error("Invalid WordPiece cache: truncated edge");
-      }
-      edge.byte = static_cast<unsigned char>(blob[offset++]);
-      edge.child = ReadU32(blob, offset, kCacheName);
-    }
+    LoadPackedNodes(blob, offset, node_count);
+    LoadPackedEdges(blob, offset, edge_count);
 
     if (offset != blob.size()) {
       throw std::runtime_error("Invalid WordPiece cache: trailing bytes");
     }
 
     ValidateCache();
+  }
+
+  void LoadPackedNodes(const std::string &blob, size_t &offset,
+                       uint32_t node_count) {
+    constexpr size_t kPackedNodeSize = 8;
+    if (offset > blob.size() || static_cast<size_t>(node_count) >
+                                  (blob.size() - offset) / kPackedNodeSize) {
+      throw std::runtime_error("Invalid WordPiece cache: truncated nodes");
+    }
+
+    nodes_.resize(node_count);
+    const unsigned char *p =
+      reinterpret_cast<const unsigned char *>(blob.data() + offset);
+    for (auto &node : nodes_) {
+      node.first_edge = static_cast<uint32_t>(p[0]) |
+                        (static_cast<uint32_t>(p[1]) << 8) |
+                        (static_cast<uint32_t>(p[2]) << 16);
+      node.edge_count =
+        static_cast<uint32_t>(p[3]) | (static_cast<uint32_t>(p[4]) << 8);
+      const uint32_t token_id = static_cast<uint32_t>(p[5]) |
+                                (static_cast<uint32_t>(p[6]) << 8) |
+                                (static_cast<uint32_t>(p[7]) << 16);
+      node.token_id = UnpackTokenId(token_id);
+      p += kPackedNodeSize;
+    }
+    offset += static_cast<size_t>(node_count) * kPackedNodeSize;
+  }
+
+  void LoadPackedEdges(const std::string &blob, size_t &offset,
+                       uint32_t edge_count) {
+    constexpr size_t kPackedEdgeSize = 4;
+    if (offset > blob.size() || static_cast<size_t>(edge_count) >
+                                  (blob.size() - offset) / kPackedEdgeSize) {
+      throw std::runtime_error("Invalid WordPiece cache: truncated edges");
+    }
+
+    edges_.resize(edge_count);
+    const unsigned char *p =
+      reinterpret_cast<const unsigned char *>(blob.data() + offset);
+    for (auto &edge : edges_) {
+      edge.byte = p[0];
+      edge.child = static_cast<uint32_t>(p[1]) |
+                   (static_cast<uint32_t>(p[2]) << 8) |
+                   (static_cast<uint32_t>(p[3]) << 16);
+      p += kPackedEdgeSize;
+    }
+    offset += static_cast<size_t>(edge_count) * kPackedEdgeSize;
   }
 
   void ValidateCache() const {
