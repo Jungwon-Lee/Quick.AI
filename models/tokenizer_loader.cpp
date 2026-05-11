@@ -433,11 +433,6 @@ std::unique_ptr<tokenizers::Tokenizer> LoadTokenizer(nlohmann::json &nntr_cfg) {
     looks_like_tokenizer_json &&
     tokenizer_blob.find("\"BPE\"") != std::string::npos;
 
-  if (requested_wordpiece || looks_like_vocab_txt) {
-    return LoadWordPieceTokenizer(tokenizer_blob, wordpiece_cache_file,
-                                  tokenizer_file, config);
-  }
-
   std::unique_ptr<json> tokenizer_json;
   auto get_tokenizer_json = [&]() -> json & {
     if (!tokenizer_json) {
@@ -446,13 +441,20 @@ std::unique_ptr<tokenizers::Tokenizer> LoadTokenizer(nlohmann::json &nntr_cfg) {
     return *tokenizer_json;
   };
 
-  if (may_be_wordpiece_json) {
+  if (looks_like_tokenizer_json &&
+      (requested_wordpiece || may_be_wordpiece_json)) {
     json &json_blob = get_tokenizer_json();
     if (IsWordPieceTokenizerJson(json_blob)) {
       std::string vocab_blob = BuildWordPieceVocabBlob(json_blob, config);
       return LoadWordPieceTokenizer(vocab_blob, wordpiece_cache_file,
                                     tokenizer_file, config);
     }
+  }
+
+  if (!looks_like_tokenizer_json &&
+      (requested_wordpiece || looks_like_vocab_txt)) {
+    return LoadWordPieceTokenizer(tokenizer_blob, wordpiece_cache_file,
+                                  tokenizer_file, config);
   }
 
   if (requested_bpe || may_be_bpe_json) {
