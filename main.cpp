@@ -138,27 +138,27 @@ int main(int argc, char *argv[]) {
   quick_dot_ai::Factory::Instance().registerModel(
     "LlamaForCausalLM", [](json cfg, json generation_cfg, json nntr_cfg) {
       return std::make_unique<quick_dot_ai::CausalLM>(cfg, generation_cfg,
-                                                  nntr_cfg);
+                                                      nntr_cfg);
     });
   quick_dot_ai::Factory::Instance().registerModel(
     "Qwen2ForCausalLM", [](json cfg, json generation_cfg, json nntr_cfg) {
       return std::make_unique<quick_dot_ai::Qwen2CausalLM>(cfg, generation_cfg,
-                                                       nntr_cfg);
+                                                           nntr_cfg);
     });
   quick_dot_ai::Factory::Instance().registerModel(
     "Qwen2Embedding", [](json cfg, json generation_cfg, json nntr_cfg) {
       return std::make_unique<quick_dot_ai::Qwen2Embedding>(cfg, generation_cfg,
-                                                        nntr_cfg);
+                                                            nntr_cfg);
     });
   quick_dot_ai::Factory::Instance().registerModel(
     "Qwen3ForCausalLM", [](json cfg, json generation_cfg, json nntr_cfg) {
       return std::make_unique<quick_dot_ai::Qwen3CausalLM>(cfg, generation_cfg,
-                                                       nntr_cfg);
+                                                           nntr_cfg);
     });
   quick_dot_ai::Factory::Instance().registerModel(
     "Qwen3MoeForCausalLM", [](json cfg, json generation_cfg, json nntr_cfg) {
-      return std::make_unique<quick_dot_ai::Qwen3MoECausalLM>(cfg, generation_cfg,
-                                                          nntr_cfg);
+      return std::make_unique<quick_dot_ai::Qwen3MoECausalLM>(
+        cfg, generation_cfg, nntr_cfg);
     });
   quick_dot_ai::Factory::Instance().registerModel(
     "Qwen3SlimMoeForCausalLM",
@@ -175,12 +175,12 @@ int main(int argc, char *argv[]) {
   quick_dot_ai::Factory::Instance().registerModel(
     "Qwen3Embedding", [](json cfg, json generation_cfg, json nntr_cfg) {
       return std::make_unique<quick_dot_ai::Qwen3Embedding>(cfg, generation_cfg,
-                                                        nntr_cfg);
+                                                            nntr_cfg);
     });
   quick_dot_ai::Factory::Instance().registerModel(
     "GptOssForCausalLM", [](json cfg, json generation_cfg, json nntr_cfg) {
-      return std::make_unique<quick_dot_ai::GptOssForCausalLM>(cfg, generation_cfg,
-                                                           nntr_cfg);
+      return std::make_unique<quick_dot_ai::GptOssForCausalLM>(
+        cfg, generation_cfg, nntr_cfg);
     });
   quick_dot_ai::Factory::Instance().registerModel(
     "GptOssCachedSlimCausalLM",
@@ -191,7 +191,7 @@ int main(int argc, char *argv[]) {
   quick_dot_ai::Factory::Instance().registerModel(
     "Gemma3ForCausalLM", [](json cfg, json generation_cfg, json nntr_cfg) {
       return std::make_unique<quick_dot_ai::Gemma3CausalLM>(cfg, generation_cfg,
-                                                        nntr_cfg);
+                                                            nntr_cfg);
     });
   quick_dot_ai::Factory::Instance().registerModel(
     "SmallThinkerForCausalLM",
@@ -200,9 +200,15 @@ int main(int argc, char *argv[]) {
         cfg, generation_cfg, nntr_cfg);
     });
   quick_dot_ai::Factory::Instance().registerModel(
+    "SmallThinkerSlimForCausalLM",
+    [](json cfg, json generation_cfg, json nntr_cfg) {
+      return std::make_unique<quick_dot_ai::SmallThinkerSlimCausalLM>(
+        cfg, generation_cfg, nntr_cfg);
+    });
+  quick_dot_ai::Factory::Instance().registerModel(
     "EmbeddingGemma", [](json cfg, json generation_cfg, json nntr_cfg) {
       return std::make_unique<quick_dot_ai::EmbeddingGemma>(cfg, generation_cfg,
-                                                        nntr_cfg);
+                                                            nntr_cfg);
     });
 
   // Validate arguments
@@ -226,7 +232,8 @@ int main(int argc, char *argv[]) {
     json cfg = quick_dot_ai::LoadJsonFile(model_path + "/config.json");
     json generation_cfg =
       quick_dot_ai::LoadJsonFile(model_path + "/generation_config.json");
-    json nntr_cfg = quick_dot_ai::LoadJsonFile(model_path + "/nntr_config.json");
+    json nntr_cfg =
+      quick_dot_ai::LoadJsonFile(model_path + "/nntr_config.json");
 
     if (nntr_cfg.contains("system_prompt")) {
       system_head_prompt =
@@ -271,8 +278,8 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    auto model = quick_dot_ai::Factory::Instance().create(architecture, cfg,
-                                                      generation_cfg, nntr_cfg);
+    auto model = quick_dot_ai::Factory::Instance().create(
+      architecture, cfg, generation_cfg, nntr_cfg);
     if (!model) {
       std::cerr << "Unknown architecture: " << architecture << std::endl;
       std::cerr << "Registered architectures:";

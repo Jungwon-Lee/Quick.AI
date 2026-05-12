@@ -27,6 +27,7 @@
 #include <iostream>
 #include <smallthinker_causallm.h>
 #include <smallthinker_moe_layer.h>
+#include <smallthinker_moe_layer_slim.h>
 #include <stdexcept>
 
 namespace quick_dot_ai {
@@ -209,12 +210,9 @@ SmallThinkerCausalLM::createTransformerDecoderBlock(const int layer_id,
   return layers;
 }
 
-std::vector<LayerHandle>
-SmallThinkerCausalLM::createAttention(const int layer_id, int seq_len,
-                                      int n_heads, int head_dim,
-                                      std::string query_name,
-                                      std::string key_name,
-                                      std::string value_name) {
+std::vector<LayerHandle> SmallThinkerCausalLM::createAttention(
+  const int layer_id, int seq_len, int n_heads, int head_dim,
+  std::string query_name, std::string key_name, std::string value_name) {
 
   std::vector<LayerHandle> layers;
 
@@ -280,7 +278,7 @@ SmallThinkerCausalLM::createMlp(const int layer_id, int dim, int hidden_dim,
     router_input_name_.empty() ? input_name : router_input_name_;
 
   layers.push_back(createLayer(
-    "smallthinker_moe",
+    getMoELayerType(),
     {withKey("name", "layer" + std::to_string(layer_id) + "_ffn_down"),
      withKey("input_layers", {input_name, router_input}),
      withKey("unit", hidden_dim), withKey("num_experts", NUM_EXPERTS),
@@ -302,6 +300,22 @@ void SmallThinkerCausalLM::registerCustomLayers() {
   try {
     app_context->registerFactory(
       nntrainer::createLayer<quick_dot_ai::SmallThinkerMoELayer>);
+  } catch (std::invalid_argument &e) {
+    std::cerr << "failed to register factory, reason: " << e.what()
+              << std::endl;
+  }
+}
+
+void SmallThinkerSlimCausalLM::registerCustomLayers() {
+  CausalLM::registerCustomLayers();
+
+  auto &ct_engine = nntrainer::Engine::Global();
+  auto app_context =
+    static_cast<nntrainer::AppContext *>(ct_engine.getRegisteredContext("cpu"));
+
+  try {
+    app_context->registerFactory(
+      nntrainer::createLayer<quick_dot_ai::SmallThinkerSlimMoELayer>);
   } catch (std::invalid_argument &e) {
     std::cerr << "failed to register factory, reason: " << e.what()
               << std::endl;
