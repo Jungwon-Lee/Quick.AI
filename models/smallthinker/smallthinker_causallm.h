@@ -54,15 +54,40 @@ protected:
 
   void registerCustomLayers() override;
 
-private:
+  virtual const char *getMoELayerType() const { return "smallthinker_moe"; }
+
   static json &normalizeConfig(json &cfg);
 
+private:
   unsigned int NUM_EXPERTS;
   unsigned int NUM_EXPERTS_PER_TOK;
   bool ROUTER_APPLY_SOFTMAX;
   std::string router_input_name_;
   std::vector<bool> rope_layout_;
   std::vector<bool> sliding_window_layout_;
+};
+
+/**
+ * @brief SmallThinkerSlimCausalLM class
+ * @note  Uses virtual expert weights for on-demand MoE loading.
+ */
+class SmallThinkerSlimCausalLM : public SmallThinkerCausalLM {
+public:
+  static constexpr const char *architectures = "SmallThinkerSlimForCausalLM";
+
+  SmallThinkerSlimCausalLM(json &cfg, json &generation_cfg, json &nntr_cfg) :
+    Transformer(normalizeConfig(cfg), generation_cfg, nntr_cfg,
+                ModelType::CAUSALLM),
+    SmallThinkerCausalLM(cfg, generation_cfg, nntr_cfg) {}
+
+  virtual ~SmallThinkerSlimCausalLM() = default;
+
+protected:
+  const char *getMoELayerType() const override {
+    return "smallthinker_moe_slim";
+  }
+
+  void registerCustomLayers() override;
 };
 
 } // namespace quick_dot_ai
