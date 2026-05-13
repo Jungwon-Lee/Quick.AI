@@ -66,6 +66,20 @@ void writePlainAttention(TensorWriter &writer, const ModelPlan &plan,
                                shape.prefix + "_attention_out");
 }
 
+void writeSmallThinkerAttention(TensorWriter &writer, const ModelPlan &plan,
+                                const QuantPlan &quant_plan,
+                                const LayerShape &shape) {
+  writer.writeTransposedMatrix(plan.hidden, shape.q_width, quant_plan.fc_dtype,
+                               shape.prefix + "_wq");
+  writer.writeTransposedMatrix(plan.hidden, shape.kv_width, quant_plan.fc_dtype,
+                               shape.prefix + "_wk");
+  writer.writeTransposedMatrix(plan.hidden, shape.kv_width, quant_plan.fc_dtype,
+                               shape.prefix + "_wv");
+  // o_proj has shape [hidden, num_heads * head_dim], not [hidden, hidden]
+  writer.writeTransposedMatrix(plan.hidden, shape.q_width, quant_plan.fc_dtype,
+                               shape.prefix + "_attention_out");
+}
+
 void writeQwen2Attention(TensorWriter &writer, const ModelPlan &plan,
                          const QuantPlan &quant_plan, const LayerShape &shape) {
   writer.quantizeFcWithBias(plan.hidden, shape.q_width, quant_plan.fc_dtype,
@@ -209,7 +223,7 @@ void writeSmallThinkerLayer(TensorWriter &writer, const ModelPlan &plan,
                             const QuantPlan &quant_plan, size_t layer) {
   const LayerShape shape = layerShape(plan, layer);
   writer.copyFp32Tensor(plan.hidden, shape.prefix + "_attention_norm");
-  writePlainAttention(writer, plan, quant_plan, shape);
+  writeSmallThinkerAttention(writer, plan, quant_plan, shape);
   writer.copyFp32Tensor(plan.hidden, shape.prefix + "_ffn_norm");
   writeMoe(writer, plan, quant_plan, shape.prefix);
 }
