@@ -71,6 +71,7 @@ LOCAL_SRC_FILES := \
     ../models/qwen3_cached_slim_moe/qwen3_cached_slim_moe_causallm.cpp \
     ../models/smallthinker/smallthinker_causallm.cpp \
     ../models/smallthinker/smallthinker_moe_layer.cpp \
+    ../models/smallthinker/smallthinker_moe_layer_cached_slim.cpp \
     ../models/smallthinker/smallthinker_moe_layer_slim.cpp \
     ../models/gpt_oss/gptoss_causallm.cpp \
     ../models/gpt_oss_cached_slim/gptoss_cached_slim_causallm.cpp \
@@ -200,6 +201,7 @@ LOCAL_SRC_FILES := ../quantize.cpp \
     ../models/qwen3_cached_slim_moe/qwen3_cached_slim_moe_causallm.cpp \
     ../models/smallthinker/smallthinker_causallm.cpp \
     ../models/smallthinker/smallthinker_moe_layer.cpp \
+    ../models/smallthinker/smallthinker_moe_layer_cached_slim.cpp \
     ../models/smallthinker/smallthinker_moe_layer_slim.cpp \
     ../models/gpt_oss/gptoss_causallm.cpp \
     ../models/gpt_oss_cached_slim/gptoss_cached_slim_causallm.cpp \

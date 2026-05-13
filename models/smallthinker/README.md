@@ -6,6 +6,7 @@ Supported architecture:
 
 - `SmallThinkerForCausalLM`
 - `SmallThinkerSlimForCausalLM`
+- `SmallThinkerCachedSlimForCausalLM`
 
 The implementation follows SmallThinker's MoE decoder shape: GQA attention,
 top-k primary routing, ReLU-gated experts, and a separate pre-attention router
@@ -15,6 +16,9 @@ input for the MoE block.
   expert and router inputs.
 - `smallthinker_moe_layer_slim.cpp`: Slim MoE variant that maps expert weights
   on demand and releases them after each active expert is computed.
+- `smallthinker_moe_layer_cached_slim.cpp`: Cached slim variant that keeps a
+  bounded LRU set of active virtual experts. Set `moe_cache_size` in
+  `nntr_config.json` to tune the memory/speed trade-off.
 
 Supported model configs:
 

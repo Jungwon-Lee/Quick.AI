@@ -56,11 +56,14 @@ protected:
 
   virtual const char *getMoELayerType() const { return "smallthinker_moe"; }
 
+  virtual bool usesMoECache() const { return false; }
+
   static json &normalizeConfig(json &cfg);
 
 private:
   unsigned int NUM_EXPERTS;
   unsigned int NUM_EXPERTS_PER_TOK;
+  unsigned int MOE_CACHE_SIZE;
   bool ROUTER_APPLY_SOFTMAX;
   std::string router_input_name_;
   std::vector<bool> rope_layout_;
@@ -86,6 +89,33 @@ protected:
   const char *getMoELayerType() const override {
     return "smallthinker_moe_slim";
   }
+
+  void registerCustomLayers() override;
+};
+
+/**
+ * @brief SmallThinkerCachedSlimCausalLM class
+ * @note  Keeps a bounded LRU cache of active virtual expert weights.
+ */
+class SmallThinkerCachedSlimCausalLM : public SmallThinkerCausalLM {
+public:
+  static constexpr const char *architectures =
+    "SmallThinkerCachedSlimForCausalLM";
+
+  SmallThinkerCachedSlimCausalLM(json &cfg, json &generation_cfg,
+                                 json &nntr_cfg) :
+    Transformer(normalizeConfig(cfg), generation_cfg, nntr_cfg,
+                ModelType::CAUSALLM),
+    SmallThinkerCausalLM(cfg, generation_cfg, nntr_cfg) {}
+
+  virtual ~SmallThinkerCachedSlimCausalLM() = default;
+
+protected:
+  const char *getMoELayerType() const override {
+    return "smallthinker_moe_cached_slim";
+  }
+
+  bool usesMoECache() const override { return true; }
 
   void registerCustomLayers() override;
 };

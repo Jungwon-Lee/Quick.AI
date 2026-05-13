@@ -206,6 +206,12 @@ int main(int argc, char *argv[]) {
         cfg, generation_cfg, nntr_cfg);
     });
   quick_dot_ai::Factory::Instance().registerModel(
+    "SmallThinkerCachedSlimForCausalLM",
+    [](json cfg, json generation_cfg, json nntr_cfg) {
+      return std::make_unique<quick_dot_ai::SmallThinkerCachedSlimCausalLM>(
+        cfg, generation_cfg, nntr_cfg);
+    });
+  quick_dot_ai::Factory::Instance().registerModel(
     "EmbeddingGemma", [](json cfg, json generation_cfg, json nntr_cfg) {
       return std::make_unique<quick_dot_ai::EmbeddingGemma>(cfg, generation_cfg,
                                                             nntr_cfg);

@@ -274,6 +274,12 @@ void registerAllModels() {
       return std::make_unique<quick_dot_ai::SmallThinkerSlimCausalLM>(
         cfg, generation_cfg, nntr_cfg);
     });
+  factory.registerModel(
+    "SmallThinkerCachedSlimForCausalLM",
+    [](json cfg, json generation_cfg, json nntr_cfg) {
+      return std::make_unique<quick_dot_ai::SmallThinkerCachedSlimCausalLM>(
+        cfg, generation_cfg, nntr_cfg);
+    });
   factory.registerModel("EmbeddingGemma",
                         [](json cfg, json generation_cfg, json nntr_cfg) {
                           return std::make_unique<quick_dot_ai::EmbeddingGemma>(

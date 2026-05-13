@@ -27,6 +27,7 @@
 #include <iostream>
 #include <smallthinker_causallm.h>
 #include <smallthinker_moe_layer.h>
+#include <smallthinker_moe_layer_cached_slim.h>
 #include <smallthinker_moe_layer_slim.h>
 #include <stdexcept>
 
@@ -91,6 +92,9 @@ void SmallThinkerCausalLM::setupParameters(json &cfg, json &generation_cfg,
     NUM_EXPERTS = cfg["moe_num_primary_experts"];
     NUM_EXPERTS_PER_TOK = cfg["moe_num_active_primary_experts"];
     INTERMEDIATE_SIZE = cfg["moe_ffn_hidden_size"];
+    MOE_CACHE_SIZE = nntr_cfg.contains("moe_cache_size")
+                       ? nntr_cfg["moe_cache_size"].get<unsigned int>()
+                       : 16;
     ROUTER_APPLY_SOFTMAX =
       cfg.contains("moe_primary_router_apply_softmax")
         ? cfg["moe_primary_router_apply_softmax"].get<bool>()
@@ -276,16 +280,20 @@ SmallThinkerCausalLM::createMlp(const int layer_id, int dim, int hidden_dim,
   std::vector<LayerHandle> layers;
   const std::string router_input =
     router_input_name_.empty() ? input_name : router_input_name_;
+  std::vector<std::string> moe_props = {
+    withKey("name", "layer" + std::to_string(layer_id) + "_ffn_down"),
+    withKey("input_layers", {input_name, router_input}),
+    withKey("unit", hidden_dim),
+    withKey("num_experts", NUM_EXPERTS),
+    withKey("num_experts_per_token", NUM_EXPERTS_PER_TOK),
+    withKey("moe_activation", "relu"),
+    withKey("moe_router_apply_softmax",
+            ROUTER_APPLY_SOFTMAX ? "true" : "false")};
 
-  layers.push_back(createLayer(
-    getMoELayerType(),
-    {withKey("name", "layer" + std::to_string(layer_id) + "_ffn_down"),
-     withKey("input_layers", {input_name, router_input}),
-     withKey("unit", hidden_dim), withKey("num_experts", NUM_EXPERTS),
-     withKey("num_experts_per_token", NUM_EXPERTS_PER_TOK),
-     withKey("moe_activation", "relu"),
-     withKey("moe_router_apply_softmax",
-             ROUTER_APPLY_SOFTMAX ? "true" : "false")}));
+  if (usesMoECache())
+    moe_props.emplace_back(withKey("moe_cache_size", MOE_CACHE_SIZE));
+
+  layers.push_back(createLayer(getMoELayerType(), moe_props));
 
   return layers;
 }
@@ -316,6 +324,22 @@ void SmallThinkerSlimCausalLM::registerCustomLayers() {
   try {
     app_context->registerFactory(
       nntrainer::createLayer<quick_dot_ai::SmallThinkerSlimMoELayer>);
+  } catch (std::invalid_argument &e) {
+    std::cerr << "failed to register factory, reason: " << e.what()
+              << std::endl;
+  }
+}
+
+void SmallThinkerCachedSlimCausalLM::registerCustomLayers() {
+  CausalLM::registerCustomLayers();
+
+  auto &ct_engine = nntrainer::Engine::Global();
+  auto app_context =
+    static_cast<nntrainer::AppContext *>(ct_engine.getRegisteredContext("cpu"));
+
+  try {
+    app_context->registerFactory(
+      nntrainer::createLayer<quick_dot_ai::SmallThinkerCachedSlimMoELayer>);
   } catch (std::invalid_argument &e) {
     std::cerr << "failed to register factory, reason: " << e.what()
               << std::endl;
