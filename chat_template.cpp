@@ -92,11 +92,6 @@ std::string findToken(const nlohmann::json &tokenizer_config,
   return "";
 }
 
-bool hasArrayItems(const nlohmann::json &value, const std::string &key) {
-  return value.is_object() && value.contains(key) && value[key].is_array() &&
-         !value[key].empty();
-}
-
 std::string textFromContentParts(const nlohmann::json &content) {
   std::string text;
   for (const auto &part : content) {
@@ -247,8 +242,7 @@ struct ChatTemplate::Impl {
                              std::unique_ptr<minja::chat_template>>
     renderers;
 
-  const std::string &selectTemplate(const nlohmann::json &request,
-                                    const Options &options,
+  const std::string &selectTemplate(bool has_tools, const Options &options,
                                     std::string &cache_key) const {
     if (!template_source.empty()) {
       cache_key = "__default__";
@@ -265,7 +259,7 @@ struct ChatTemplate::Impl {
       return template_map[options.template_name].get_ref<const std::string &>();
     }
 
-    if (hasArrayItems(request, "tools") && template_map.contains("tool_use") &&
+    if (has_tools && template_map.contains("tool_use") &&
         template_map["tool_use"].is_string()) {
       cache_key = "tool_use";
       return template_map["tool_use"].get_ref<const std::string &>();
@@ -374,6 +368,63 @@ struct ChatTemplate::Impl {
     return messages;
   }
 
+  OrderedJson normalizeTools(const nlohmann::json &request) const {
+    if (!request.is_object())
+      return OrderedJson::array();
+
+    const nlohmann::json *tools_json = nullptr;
+    const char *tools_field = nullptr;
+    if (request.contains("tools")) {
+      tools_json = &request["tools"];
+      tools_field = "tools";
+    } else if (request.contains("functions")) {
+      tools_json = &request["functions"];
+      tools_field = "functions";
+    }
+
+    if (tools_json == nullptr)
+      return OrderedJson::array();
+
+    if (!tools_json->is_array())
+      throw std::runtime_error(std::string("chat_input.") + tools_field +
+                               " must be an array");
+
+    OrderedJson tools = OrderedJson::array();
+    for (const auto &tool_json : *tools_json) {
+      if (!tool_json.is_object())
+        throw std::runtime_error("Each tool must be an object");
+
+      OrderedJson tool = OrderedJson::object();
+      if (tool_json.contains("function")) {
+        if (!tool_json["function"].is_object()) {
+          throw std::runtime_error(
+            "OpenAI function tools must include an object function field");
+        }
+
+        tool = toOrderedJson(tool_json);
+        if (!tool.contains("type"))
+          tool["type"] = "function";
+      } else if (tool_json.contains("name")) {
+        tool["type"] = "function";
+        tool["function"] = toOrderedJson(tool_json);
+      } else {
+        throw std::runtime_error(
+          "Function tools must be OpenAI tool objects or raw function schemas");
+      }
+
+      const auto &function = tool["function"];
+      if (!function.contains("name") || !function["name"].is_string() ||
+          function["name"].get<std::string>().empty()) {
+        throw std::runtime_error(
+          "Function tools must include a non-empty function name");
+      }
+
+      tools.push_back(std::move(tool));
+    }
+
+    return tools;
+  }
+
   OrderedJson buildExtraContext(const nlohmann::json &request) const {
     OrderedJson extra_context = OrderedJson::object();
 
@@ -394,7 +445,7 @@ struct ChatTemplate::Impl {
     if (request.is_object()) {
       for (auto it = request.begin(); it != request.end(); ++it) {
         const std::string &key = it.key();
-        if (key == "messages" || key == "tools" ||
+        if (key == "messages" || key == "tools" || key == "functions" ||
             key == "add_generation_prompt" ||
             key == "continue_final_message") {
           continue;
@@ -514,10 +565,7 @@ std::string ChatTemplate::apply(const nlohmann::json &request,
   }
 
   OrderedJson messages = impl_->normalizeMessages(request, options);
-  OrderedJson tools =
-    request.is_object() && request.contains("tools")
-      ? toOrderedJson(request["tools"])
-      : OrderedJson::array();
+  OrderedJson tools = impl_->normalizeTools(request);
 
   minja::chat_template_inputs inputs;
   inputs.messages = messages;
@@ -528,7 +576,7 @@ std::string ChatTemplate::apply(const nlohmann::json &request,
 
   std::string cache_key;
   const std::string &source =
-    impl_->selectTemplate(request, options, cache_key);
+    impl_->selectTemplate(!tools.empty(), options, cache_key);
   minja::chat_template_options render_options;
   render_options.apply_polyfills = impl_->apply_polyfills;
   return impl_->rendererFor(cache_key, source).apply(inputs, render_options);

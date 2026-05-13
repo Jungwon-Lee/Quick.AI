@@ -88,8 +88,15 @@ std::string format_parameters(const json &properties) {
 
 std::string format_function_declaration(const json &tool) {
   std::stringstream ss;
+  const json *func_ptr = nullptr;
   if (tool.contains("function")) {
-    const auto &func = tool["function"];
+    func_ptr = &tool["function"];
+  } else if (tool.contains("name")) {
+    func_ptr = &tool;
+  }
+
+  if (func_ptr != nullptr) {
+    const auto &func = *func_ptr;
     ss << "declaration:" << func.value("name", "") << ",";
     ss << "description:" << escape_value(func.value("description", "")) << ",";
 
@@ -158,9 +165,13 @@ std::string apply_function_gemma_template(const json &chat_input) {
     }
 
     // Insert tools if this is the first message and it is developer/system
-    if (!tools_inserted && chat_input.contains("tools") &&
+    if (!tools_inserted &&
+        (chat_input.contains("tools") || chat_input.contains("functions")) &&
         (role == "developer" || role == "system")) {
-      for (const auto &tool : chat_input["tools"]) {
+      const auto &tools =
+        chat_input.contains("tools") ? chat_input["tools"]
+                                     : chat_input["functions"];
+      for (const auto &tool : tools) {
         prompt << "<start_function_declaration>";
         prompt << format_function_declaration(tool);
         prompt << "<end_function_declaration>";
